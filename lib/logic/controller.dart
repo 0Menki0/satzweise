@@ -97,7 +97,7 @@ class AppController extends ChangeNotifier {
   }
 
   /// Einmal pro Sekunde: Uhren aktualisieren und Pausenende erkennen.
-  @visibleForTesting
+  /// Wird auch vom Sperrbildschirm angestoßen, wenn dort die Pause abläuft.
   void tick() {
     final w = workout;
     if (w == null || w.phase == Phase.summary) return;

@@ -5,6 +5,7 @@ import 'package:material_ui/material_ui.dart';
 
 import 'data/store.dart';
 import 'logic/controller.dart';
+import 'platform/lock_screen.dart';
 import 'ui/history_tab.dart';
 import 'ui/settings_tab.dart';
 import 'ui/theme.dart';
@@ -15,11 +16,13 @@ Future<void> main() async {
   await initializeDateFormatting('de_DE');
   // Im Browser (nur Vorschau) wird nichts dauerhaft gespeichert.
   final c = AppController(store: kIsWeb ? MemoryStore() : FileStore());
-  // Kurze Vibration, wenn die Pause abläuft. Bei gesperrtem Bildschirm
-  // übernimmt das später eine geplante Benachrichtigung.
-  c.onRestFinished = () => HapticFeedback.heavyImpact();
+  final android = !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
+  // Auf Android vibriert der Trainingsdienst am Pausenende, auch bei
+  // gesperrtem Bildschirm. Sonst kurz über die App, solange sie offen ist.
+  if (!android) c.onRestFinished = () => HapticFeedback.heavyImpact();
   runApp(SatzweiseApp(c: c));
   await c.load(demo: kIsWeb && Uri.base.queryParameters.containsKey('demo'));
+  if (android) await LockScreenBridge(c).start();
 }
 
 class SatzweiseApp extends StatelessWidget {

@@ -24,9 +24,11 @@ Grundversion der Handy-App, nach dem klickbaren Entwurf:
   - eigene Übungen mit Piktogramm
 - **Speicherung:** Daten liegen lokal auf dem Gerät. Ein laufendes Training übersteht einen Neustart der App.
 
+- **Sperrbildschirm (Android):** Benachrichtigung mit Satz, Pause, laufender Uhr und Knöpfen, zum Beispiel Zurück, − Wdh., Satz fertig, +15 s, Rückmeldung, nächste Übung und Speichern. Am Pausenende vibriert das Handy, auch wenn es gesperrt ist.
+
 ## Geplant
 
-1. Sperrbildschirm: Benachrichtigung mit Knöpfen (Android) und Live Activity (iOS). Dazu eine Vibration zum Pausenende auch bei gesperrtem Bildschirm.
+1. iOS: Live Activity für den Sperrbildschirm. Dafür braucht es einen Mac mit Xcode.
 2. Garmin Venu 2: Connect-IQ-App, die die Aktivität selbst aufzeichnet. Sie läuft über Garmin Connect weiter zu Strava, gleicht sich mit dem Handy ab und funktioniert auch ohne Verbindung.
 
 ## Entwickeln
@@ -47,9 +49,21 @@ flutter build web --no-web-resources-cdn && cd build/web && python3 -m http.serv
 
 Danach `http://localhost:8765/?demo` öffnen.
 
+## Android-Version bauen
+
+```bash
+flutter build apk --release
+```
+
+Die Datei liegt danach unter `build/app/outputs/flutter-apk/app-release.apk`.
+
+Signiert wird mit `android/satzweise-release.jks`. Die Zugangsdaten stehen in `android/key.properties`. Beide Dateien sind **nicht im Repository**, du bewahrst sie selbst auf. Fehlen sie, wird mit einem Testschlüssel signiert. Eine so gebaute Version lässt sich nicht über die installierte App spielen.
+
 ## Aufbau
 
 - `lib/data/`: Datenmodell, Übungskatalog, Trainingsarten, Speicher
 - `lib/logic/coach.dart`: Vorschläge, Vorbelegung, Empfehlung, Zusammenfassung
 - `lib/logic/controller.dart`: alle Aktionen im Training samt Zurück. Sperrbildschirm und Uhr nutzen später dieselben.
+- `lib/platform/lock_screen.dart`: Inhalt und Knöpfe der Sperrbildschirm-Benachrichtigung
+- `android/.../WorkoutService.kt`: Vordergrunddienst mit Benachrichtigung und Vibration am Pausenende
 - `lib/ui/`: Oberfläche
