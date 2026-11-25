@@ -78,6 +78,15 @@ class _SettingsTabState extends State<SettingsTab> {
       ]),
       const SizedBox(height: 6),
       Text('Im Training passt du sie mit −15 / +15 s an.', style: TextStyle(fontSize: 13, color: col.mute)),
+      const SizedBox(height: 6),
+      SwitchListTile(
+        contentPadding: EdgeInsets.zero,
+        value: c.settings.restSound,
+        onChanged: c.setRestSound,
+        title: const Text('Ton am Ende der Pause'),
+        subtitle: Text('Zusätzlich zur Vibration, mit dem Benachrichtigungston deines Handys',
+            style: TextStyle(fontSize: 13, color: col.mute)),
+      ),
       if (days.isNotEmpty) ...[
         const SectionTitle('Gelernte Abläufe', trailing: 'aus deinen Trainings'),
         for (final d in days)

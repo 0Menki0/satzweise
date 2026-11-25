@@ -20,89 +20,109 @@ void main() {
   tearDown(() => c.dispose());
 
   LockContent l() => lockContent(c)!;
-  List<String> ids() => l().buttons.map((a) => a.id).toList();
+  List<List<String>> rows() => [
+        for (final r in l().rows) [for (final a in r) a.id],
+      ];
+  String? primary() => l().all.where((a) => a.primary).firstOrNull?.id;
 
-  test('ohne Training keine Player-Karte', () {
+  test('ohne Training keine Benachrichtigung', () {
     expect(lockContent(c), isNull);
   });
 
   test('ganzes Training nur über die Knöpfe des Sperrbildschirms', () {
     c.startWorkout('limbs');
     expect(l().title, 'Womit startest du?');
-    expect(ids().first, 'undo');
-    runLockAction(c, ids().firstWhere((i) => i.startsWith('pick:')));
+    runLockAction(c, l().all.firstWhere((a) => a.id.startsWith('pick:')).id);
 
-    expect(l().mode, LockMode.set);
-    expect(l().title, endsWith('Satz 1/3'));
-    expect(l().primary!.id, 'done', reason: '⏸ beendet den Satz');
-    expect(ids(), ['undo', 'repsMinus', 'repsPlus', 'end']);
-    expect(l().subtitle, contains('{total}'));
+    expect(l().status, LockStatus.setRunning);
+    expect(l().title, endsWith('Satz 1'));
+    expect(rows(), [
+      ['repsMinus', 'repsPlus', 'done'],
+      ['weightMinus', 'weightPlus', 'undo'],
+    ]);
+    expect(primary(), 'done');
+    expect(l().wide, isNull, reason: 'Übung beenden erst nach dem ersten Satz');
 
     final before = c.workout!.sets.first.reps;
     runLockAction(c, 'repsPlus');
     expect(c.workout!.sets.first.reps, before + 1);
     runLockAction(c, 'undo');
     expect(c.workout!.sets.first.reps, before);
+    final w0 = c.workout!.sets.first.weight;
+    runLockAction(c, 'weightPlus');
+    expect(c.workout!.sets.first.weight, greaterThan(w0));
+    runLockAction(c, 'weightMinus');
 
     runLockAction(c, 'done');
-    expect(l().mode, LockMode.rest);
-    expect(l().primary!.id, 'skip', reason: '▶ geht weiter');
+    expect(l().status, LockStatus.resting);
+    expect(l().title, 'Pause · danach Satz 2');
+    expect(rows().first, ['restMinus', 'restPlus', 'skip']);
     expect(l().restStart, t);
     expect(l().restEnd, t.add(const Duration(seconds: 90)));
     runLockAction(c, 'restPlus');
     expect(l().restEnd, t.add(const Duration(seconds: 105)));
-    expect(l().restStart, t, reason: 'Balken beginnt weiter beim Satzende');
-    runLockAction(c, 'restMinus');
     runLockAction(c, 'skip');
-    expect(l().mode, LockMode.set);
+    expect(l().status, LockStatus.setRunning);
+    expect(l().wide!.label, 'Übung beenden (1 Sätze)');
     runLockAction(c, 'done');
-    runLockAction(c, 'skip');
-    runLockAction(c, 'done');
+    runLockAction(c, 'end');
 
-    expect(ids(), ['rate:leicht', 'rate:passend', 'rate:schwer', 'undo']);
-    expect(l().primary, isNull);
-    runLockAction(c, 'rate:passend');
-    expect(ids(), ['undo', 'keep', 'accept']);
+    expect(rows(), [
+      ['rate:leicht', 'rate:passend', 'rate:schwer'],
+    ]);
+    expect(l().wide!.id, 'undo');
+    runLockAction(c, 'rate:leicht');
+    expect(rows().single, ['keep', 'accept']);
     runLockAction(c, 'accept');
-    expect(ids().last, 'finish');
+    expect(l().wide!.id, 'finish');
     runLockAction(c, 'finish');
     expect(c.workout!.phase, Phase.summary);
-    expect(ids(), ['undo', 'save']);
+    expect(rows().single, ['undo', 'save']);
     runLockAction(c, 'save');
     expect(c.sessions, hasLength(1));
     expect(lockContent(c), isNull);
   });
 
-  test('höchstens vier Zusatzknöpfe plus Hauptknopf in jedem Schritt', () {
+  test('höchstens zwei Reihen à drei Knöpfe plus ein breiter in jedem Schritt', () {
+    void check() {
+      expect(l().rows.length, lessThanOrEqualTo(2));
+      for (final r in l().rows) {
+        expect(r.length, lessThanOrEqualTo(3));
+      }
+    }
+
     c.startWorkout('torso');
-    void check() => expect(l().buttons.length, lessThanOrEqualTo(4));
     check();
     c.pickExercise('Bankdrücken');
     check();
     c.completeSet();
     check();
+    c.endExercise();
+    check();
   });
 
-  test('Brücke schickt Bild einmal je Übung und nur bei Änderungen', () async {
+  test('Ton-Einstellung geht mit an die Benachrichtigung', () {
+    c.startWorkout('torso');
+    expect(l().toMap()['sound'], isFalse);
+    c.setRestSound(true);
+    expect(l().toMap()['sound'], isTrue);
+  });
+
+  test('Brücke schickt nur bei Änderungen und beendet die Benachrichtigung', () async {
     final calls = <String>[];
     const ch = MethodChannel('test/lock');
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(ch, (m) async {
       calls.add(m.method);
       return m.method == 'pendingActions' ? <String>[] : null;
     });
-    await LockScreenBridge(c, channel: ch, renderArtwork: (_) async => Uint8List(4)).start();
+    await LockScreenBridge(c, channel: ch).start();
     calls.clear();
     c.startWorkout('torso');
     await pumpEventQueue();
     c.tick();
     c.tick();
     await pumpEventQueue();
-    expect(calls, ['artwork', 'update'], reason: 'Sekundentakt löst kein erneutes Senden aus');
-    c.pickExercise('Latzug');
-    await pumpEventQueue();
-    c.changeReps(1);
-    await pumpEventQueue();
-    expect(calls.where((m) => m == 'artwork'), hasLength(2));
+    expect(calls, ['update'], reason: 'Sekundentakt löst kein erneutes Senden aus');
     c.cancelWorkout();
     await pumpEventQueue();
     expect(calls.last, 'stop');

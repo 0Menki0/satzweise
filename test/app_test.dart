@@ -30,12 +30,15 @@ void main() {
     for (var i = 0; i < 3; i++) {
       await tester.tap(find.text('Satz fertig'));
       await tester.pump();
-      if (i < 2) {
-        expect(find.text('Pause läuft'), findsOneWidget);
-        await tester.tap(find.text('Weiter'));
-        await tester.pump();
-      }
+      expect(find.text('Pause läuft'), findsOneWidget);
+      await tester.tap(find.text('Weiter'));
+      await tester.pump();
     }
+    expect(find.text('Satz 4'), findsOneWidget, reason: 'keine feste Satzzahl');
+    await tester.ensureVisible(find.text('Übung beenden (3 Sätze)'));
+    await tester.pump();
+    await tester.tap(find.text('Übung beenden (3 Sätze)'));
+    await tester.pump();
     expect(find.text('Wie hat es sich angefühlt?'), findsOneWidget);
     expect(find.textContaining('Leicht steigert schneller'), findsOneWidget);
     await tester.tap(find.text('Leicht'));

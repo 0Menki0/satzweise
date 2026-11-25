@@ -24,7 +24,8 @@ Grundversion der Handy-App, nach dem klickbaren Entwurf:
   - eigene Übungen mit Piktogramm
 - **Speicherung:** Daten liegen lokal auf dem Gerät. Ein laufendes Training übersteht einen Neustart der App.
 
-- **Sperrbildschirm (Android):** Player-Karte wie bei einem Musikplayer, mit Piktogramm als Bild, Übung als Titel und Pause als Fortschrittsbalken. Der große Knopf ist ⏸ für „Satz fertig“ und ▶ für „Weiter“, dazu kommen bis zu vier weitere Knöpfe je Schritt. Am Pausenende vibriert das Handy, auch wenn es gesperrt ist.
+- **Sperrbildschirm (Android):** normale Benachrichtigung mit bis zu zwei Reihen à drei Textknöpfen und einem breiten Knopf, je nach Schritt. Laufende Satzzeit oder Pausen-Countdown mit Balken, Gesamtzeit in der Kopfzeile. Am Pausenende Vibration und auf Wunsch ein Ton, auch bei gesperrtem Bildschirm.
+- **Sätze:** keine feste Anzahl. Nach jedem Satz folgen Pause und ein neuer Satz, bis die Übung beendet wird.
 - **Verlauf:** Gespeicherte Trainings lassen sich löschen.
 
 ## Geplant

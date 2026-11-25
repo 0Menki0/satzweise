@@ -57,9 +57,20 @@ void main() {
   });
 
   test('Vorbelegung übernimmt die Wiederholungen je Satz vom letzten Mal', () {
-    final s = plannedSets(e('Bankdrücken'), log('Bankdrücken', [(8, 60), (7, 60), (6, 60)]));
-    expect(s.map((x) => x.reps), [8, 7, 6]);
-    expect(s.map((x) => x.weight), [60, 60, 60]);
+    final last = log('Bankdrücken', [(8, 60), (7, 60), (6, 60)]);
+    expect(repPlan(e('Bankdrücken'), last), [8, 7, 6]);
+    final first = firstSet(e('Bankdrücken'), last);
+    expect((first.reps, first.weight), (8, 60));
+    final second = nextSet([8, 7, 6], 1, first);
+    expect((second.reps, second.weight), (7, 60));
+    expect(nextSet([8, 7, 6], 3, second).reps, 7, reason: 'darüber hinaus wie der vorige Satz');
+  });
+
+  test('nach einer Steigerung beginnt jeder Satz unten im Bereich', () {
+    final last = log('Bankdrücken', [(8, 60), (8, 60), (8, 60)]);
+    expect(repPlan(e('Bankdrücken'), last), isEmpty);
+    final first = firstSet(e('Bankdrücken'), last);
+    expect((first.reps, first.weight), (6, 62.5));
   });
 
   group('Nächste Übung und gelernte Abläufe', () {

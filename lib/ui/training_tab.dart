@@ -192,7 +192,7 @@ class _SetView extends StatelessWidget {
         Expanded(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text(e.name, style: display(context, 30)),
-            Text('Ziel ${w.sets.length} × ${e.repMin}–${e.repMax} Wdh. · Pause ${clock(w.restSec)}',
+            Text('Ziel ${e.repMin}–${e.repMax} Wdh. je Satz · Pause ${clock(w.restSec)}',
                 style: TextStyle(fontSize: 13, color: col.mute)),
           ]),
         ),
@@ -226,7 +226,10 @@ class _SetView extends StatelessWidget {
             decoration: BoxDecoration(color: AppColors.red.withValues(alpha: .08), borderRadius: BorderRadius.circular(12)),
             child: Column(children: [
               Row(children: [
-                Expanded(child: Text('Satz ${i + 1} von ${w.sets.length}', style: TextStyle(fontSize: 13, color: col.mute))),
+                Expanded(
+                    child: Text(
+                        'Satz ${i + 1}${w.lastReps.length > i ? ' · letztes Mal ${w.lastReps[i]} Wdh.' : ''}',
+                        style: TextStyle(fontSize: 13, color: col.mute))),
                 if (!resting)
                   Text('Satz läuft ${clock(w.setElapsedSec(now))}',
                       style: const TextStyle(fontSize: 13, color: AppColors.red, fontWeight: FontWeight.w600)),
@@ -277,12 +280,9 @@ class _SetView extends StatelessWidget {
       const SizedBox(height: 12),
       if (cur != null) FilledButton(onPressed: c.completeSet, child: const Text('Satz fertig')),
       const SizedBox(height: 10),
-      Row(children: [
-        Expanded(child: OutlinedButton(onPressed: c.addSet, child: const Text('+ Satz'))),
-        const SizedBox(width: 10),
-        Expanded(
-            child: OutlinedButton(onPressed: w.sets.any((s) => s.done) ? c.endExercise : null, child: const Text('Übung beenden'))),
-      ]),
+      OutlinedButton(
+          onPressed: w.sets.any((s) => s.done) ? c.endExercise : null,
+          child: Text(w.sets.any((s) => s.done) ? 'Übung beenden (${w.doneSets.length} Sätze)' : 'Übung beenden')),
     ]);
   }
 }

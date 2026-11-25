@@ -228,12 +228,16 @@ class Session {
 }
 
 class Settings {
-  Settings({this.restSec = 90});
+  Settings({this.restSec = 90, this.restSound = false});
 
   /// Standard-Pausenzeit in Sekunden.
   int restSec;
 
-  Map<String, dynamic> toJson() => {'restSec': restSec};
+  /// Zusätzlich zur Vibration ein Ton am Ende der Pause.
+  bool restSound;
 
-  factory Settings.fromJson(Map<String, dynamic> j) => Settings(restSec: j['restSec'] as int? ?? 90);
+  Map<String, dynamic> toJson() => {'restSec': restSec, 'restSound': restSound};
+
+  factory Settings.fromJson(Map<String, dynamic> j) =>
+      Settings(restSec: j['restSec'] as int? ?? 90, restSound: j['restSound'] as bool? ?? false);
 }

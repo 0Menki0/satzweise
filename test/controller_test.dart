@@ -32,7 +32,7 @@ void main() {
     c.pickExercise('Kniebeuge');
     final w = c.workout!;
     expect(w.phase, Phase.set);
-    expect(w.sets.length, 3);
+    expect(w.sets.length, 1, reason: 'keine feste Satzzahl: es gibt nur den laufenden Satz');
     expect(w.sets.first.weight, 50);
 
     pass(40);
@@ -58,7 +58,11 @@ void main() {
     c.completeSet();
     c.skipRest();
     c.completeSet();
+    expect(w.phase, Phase.set, reason: 'nach jedem Satz folgt ein neuer');
+    expect(w.sets, hasLength(4));
+    c.endExercise();
     expect(w.phase, Phase.feedback);
+    expect(w.sets, hasLength(3), reason: 'der offene Satz entfällt');
 
     c.rate(Rating.leicht);
     expect(w.phase, Phase.recommend);
@@ -90,6 +94,7 @@ void main() {
     c.completeSet();
     c.completeSet();
     c.completeSet();
+    c.endExercise();
     c.rate(Rating.leicht);
     c.finishExercise(accept: true);
     c.finishWorkout();
@@ -117,12 +122,14 @@ void main() {
     expect(c.workout!.restRemaining(c.now), 120);
   });
 
-  test('Gewicht ändern gilt für aktuellen und folgende Sätze', () {
+  test('Gewicht ändern gilt für den laufenden und alle neuen Sätze', () {
     c.startWorkout('torso');
     c.pickExercise('Bankdrücken');
     c.completeSet();
     c.changeWeight(1);
-    expect(c.workout!.sets.map((s) => s.weight), [40, 42.5, 42.5]);
+    expect(c.workout!.sets.map((s) => s.weight), [40, 42.5]);
+    c.completeSet();
+    expect(c.workout!.sets.last.weight, 42.5, reason: 'der nächste Satz übernimmt das Gewicht');
   });
 
   test('Gerät und Notiz landen im Training und optional als Standard', () {
@@ -179,6 +186,7 @@ void main() {
       c.completeSet();
       c.completeSet();
       c.completeSet();
+      c.endExercise();
       c.rate(r);
       c.finishExercise(accept: true);
       c.finishWorkout();
@@ -200,5 +208,40 @@ void main() {
     expect(c.exercise('Bankdrücken').nextWeight, isNull);
 
     expect(c.canUndo, isFalse, reason: 'Zurück springt nicht in gelöschte Trainings');
+  });
+
+  test('neue Sätze übernehmen die Wiederholungen vom letzten Mal, Satz für Satz', () {
+    c.startWorkout('torso');
+    c.pickExercise('Bankdrücken');
+    c.changeReps(2); // 8
+    c.completeSet();
+    c.changeReps(-1); // 7, der neue Satz übernimmt 8
+    c.completeSet();
+    c.changeReps(-1); // 6
+    c.completeSet();
+    c.completeSet(); // 6, vierter Satz
+    c.endExercise();
+    c.rate(Rating.passend);
+    c.finishExercise(accept: true);
+    c.finishWorkout();
+    c.saveWorkout();
+
+    c.startWorkout('torso');
+    c.pickExercise('Bankdrücken');
+    final w = c.workout!;
+    expect(w.lastReps, [8, 7, 6, 6]);
+    expect(w.sets.single.reps, 8);
+    c.completeSet();
+    expect(w.sets.last.reps, 7);
+    c.completeSet();
+    c.completeSet();
+    c.completeSet();
+    expect(w.sets.last.reps, 6, reason: 'mehr Sätze als letztes Mal: wie der vorige');
+  });
+
+  test('Ton am Pausenende ist eine Einstellung', () {
+    expect(c.settings.restSound, isFalse);
+    c.setRestSound(true);
+    expect(c.toJson()['settings'], {'restSec': 90, 'restSound': true});
   });
 }

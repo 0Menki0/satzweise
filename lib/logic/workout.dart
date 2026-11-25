@@ -26,8 +26,10 @@ class ActiveWorkout {
     this.note = '',
     this.lastMachine = '',
     this.rating,
+    List<int>? lastReps,
   })  : sets = sets ?? [],
-        items = items ?? [];
+        items = items ?? [],
+        lastReps = lastReps ?? [];
 
   final String plan;
   final String day;
@@ -50,6 +52,12 @@ class ActiveWorkout {
   String note;
   String lastMachine;
   Rating? rating;
+
+  /// Wiederholungen je Satz vom letzten Mal (Vorlage für neue Sätze).
+  List<int> lastReps;
+
+  /// Erledigte Sätze der laufenden Übung.
+  List<SetEntry> get doneSets => sets.where((s) => s.done).toList();
 
   Set<String> get done => {for (final i in items) i.exercise};
   SetEntry? get currentSet => current < sets.length ? sets[current] : null;
@@ -90,6 +98,7 @@ class ActiveWorkout {
         'note': note,
         'lastMachine': lastMachine,
         'rating': rating?.name,
+        'lastReps': lastReps,
       };
 
   static DateTime? _d(Object? v) => v == null ? null : DateTime.parse(v as String);
@@ -113,6 +122,7 @@ class ActiveWorkout {
         note: j['note'] as String? ?? '',
         lastMachine: j['lastMachine'] as String? ?? '',
         rating: j['rating'] == null ? null : Rating.values.byName(j['rating'] as String),
+        lastReps: [for (final r in (j['lastReps'] as List?) ?? const []) r as int],
       );
 
   ActiveWorkout clone() => ActiveWorkout.fromJson(toJson());
@@ -125,14 +135,23 @@ String clock(int sec) {
   return h > 0 ? '$h:${two(m)}:${two(s)}' : '$m:${two(s)}';
 }
 
-/// Vorbelegung der Sätze für eine neu gewählte Übung: die Wiederholungen vom
-/// letzten Mal, Satz für Satz. So zählt nur, was wirklich geschafft wurde.
-/// Nach einer Steigerung beginnt das Ziel unten im Wiederholungsbereich.
-List<SetEntry> plannedSets(Exercise e, ExerciseLog? last, {int count = 3}) {
+/// Wiederholungen je Satz vom letzten Mal, als Vorlage für die Vorbelegung.
+/// Leer, wenn es kein letztes Mal gibt oder das Gewicht gestiegen ist: dann
+/// beginnt jeder Satz unten im Wiederholungsbereich.
+List<int> repPlan(Exercise e, ExerciseLog? last) {
   final p = prefill(e, last);
-  final n = last == null ? count : last.sets.length.clamp(1, 10);
-  return List.generate(n, (i) {
-    final reps = p.increased || last == null ? p.reps : last.sets[i].reps.clamp(0, e.repMax);
-    return SetEntry(reps: reps, weight: p.weight);
-  });
+  if (last == null || p.increased) return const [];
+  return [for (final s in last.sets) s.reps.clamp(0, e.repMax)];
 }
+
+/// Erster Satz einer neu gewählten Übung.
+SetEntry firstSet(Exercise e, ExerciseLog? last) {
+  final p = prefill(e, last);
+  final plan = repPlan(e, last);
+  return SetEntry(reps: plan.isEmpty ? p.reps : plan.first, weight: p.weight);
+}
+
+/// Nächster Satz: Gewicht wie der eben beendete, Wiederholungen wie im
+/// gleichen Satz beim letzten Mal (gibt es den nicht, wie eben).
+SetEntry nextSet(List<int> plan, int index, SetEntry previous) =>
+    SetEntry(reps: index < plan.length ? plan[index] : previous.reps, weight: previous.weight);

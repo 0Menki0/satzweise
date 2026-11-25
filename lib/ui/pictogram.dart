@@ -1,6 +1,3 @@
-import 'dart:typed_data';
-import 'dart:ui' as ui;
-
 import 'package:material_ui/material_ui.dart';
 
 import '../data/models.dart';
@@ -165,20 +162,4 @@ class _PictoPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_PictoPainter old) => old.ops != ops || old.ink != ink;
-}
-
-/// Piktogramm als PNG für die Player-Karte auf dem Sperrbildschirm:
-/// weiße Figur auf Rot, Gerät in Schwarz.
-Future<Uint8List> pictogramArtwork(String kind, {int size = 320}) async {
-  final rec = ui.PictureRecorder();
-  final canvas = Canvas(rec);
-  final s = size.toDouble();
-  canvas.drawRect(Rect.fromLTWH(0, 0, s, s), Paint()..color = AppColors.red);
-  canvas.save();
-  canvas.translate(s * .14, s * .14);
-  _PictoPainter(_pictograms[kind] ?? _pictograms['press']!, Colors.white, const Color(0xFF151515)).paint(canvas, Size(s * .72, s * .72));
-  canvas.restore();
-  final img = await rec.endRecording().toImage(size, size);
-  final data = await img.toByteData(format: ui.ImageByteFormat.png);
-  return data!.buffer.asUint8List();
 }

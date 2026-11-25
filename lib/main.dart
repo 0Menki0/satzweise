@@ -19,7 +19,12 @@ Future<void> main() async {
   final android = !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
   // Auf Android vibriert der Trainingsdienst am Pausenende, auch bei
   // gesperrtem Bildschirm. Sonst kurz über die App, solange sie offen ist.
-  if (!android) c.onRestFinished = () => HapticFeedback.heavyImpact();
+  if (!android) {
+    c.onRestFinished = () {
+      HapticFeedback.heavyImpact();
+      if (c.settings.restSound) SystemSound.play(SystemSoundType.alert);
+    };
+  }
   runApp(SatzweiseApp(c: c));
   await c.load(demo: kIsWeb && Uri.base.queryParameters.containsKey('demo'));
   if (android) await LockScreenBridge(c).start();

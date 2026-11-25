@@ -28,12 +28,6 @@ class MainActivity : FlutterActivity() {
                     WorkoutService.update(this, WorkoutState.fromMap(args))
                     result.success(null)
                 }
-                "artwork" -> {
-                    val key = call.argument<String>("key") ?: ""
-                    val png = call.argument<ByteArray>("png")
-                    if (png != null) WorkoutService.setArtwork(key, png)
-                    result.success(null)
-                }
                 "stop" -> {
                     WorkoutService.stop(this)
                     result.success(null)

@@ -180,7 +180,8 @@ class AppController extends ChangeNotifier {
     _snap('$name gewählt');
     w
       ..exercise = name
-      ..sets = plannedSets(e, last)
+      ..sets = [firstSet(e, last)]
+      ..lastReps = repPlan(e, last)
       ..current = 0
       ..phase = Phase.set
       ..setStartedAt = now
@@ -201,7 +202,7 @@ class AppController extends ChangeNotifier {
     _changed();
   }
 
-  /// Ändert das Gewicht des aktuellen und aller folgenden Sätze.
+  /// Ändert das Gewicht des aktuellen Satzes; folgende Sätze übernehmen es.
   void changeWeight(int direction) {
     final w = workout!;
     final s = w.currentSet;
@@ -210,9 +211,7 @@ class AppController extends ChangeNotifier {
     final nw = s.weight + direction * step;
     if (nw < 0) return;
     _snap(direction > 0 ? 'Gewicht erhöht' : 'Gewicht gesenkt');
-    for (var i = w.current; i < w.sets.length; i++) {
-      w.sets[i].weight = nw;
-    }
+    s.weight = nw;
     _changed();
   }
 
@@ -225,27 +224,15 @@ class AppController extends ChangeNotifier {
       ..done = true
       ..durationSec = w.setElapsedSec(now)
       ..finishedAt = now;
-    w.current++;
-    if (w.current >= w.sets.length) {
-      w
-        ..phase = Phase.feedback
-        ..restEndsAt = null;
-    } else {
-      w
-        ..restEndsAt = now.add(Duration(seconds: w.restSec))
-        ..setStartedAt = now;
-      _wasResting = true;
-    }
+    // Es gibt keine feste Satzzahl: nach jedem Satz folgen Pause und ein
+    // neuer Satz, bis die Übung beendet wird.
+    w.sets.add(nextSet(w.lastReps, w.current + 1, s));
+    w
+      ..current = w.current + 1
+      ..restEndsAt = now.add(Duration(seconds: w.restSec))
+      ..setStartedAt = now;
+    _wasResting = true;
     restFinishedAt = null;
-    _changed();
-  }
-
-  void addSet() {
-    final w = workout!;
-    final l = w.sets.last;
-    _snap('Satz hinzugefügt');
-    w.sets.add(SetEntry(reps: l.reps, weight: l.weight));
-    w.phase = Phase.set;
     _changed();
   }
 
@@ -253,6 +240,8 @@ class AppController extends ChangeNotifier {
     final w = workout!;
     if (!w.sets.any((s) => s.done)) return;
     _snap('Übung beendet');
+    w.sets.removeWhere((s) => !s.done);
+    w.current = w.sets.length;
     w
       ..phase = Phase.feedback
       ..restEndsAt = null;
@@ -368,6 +357,11 @@ class AppController extends ChangeNotifier {
 
   void setDefaultRest(int sec) {
     settings.restSec = sec.clamp(15, 600);
+    _changed();
+  }
+
+  void setRestSound(bool on) {
+    settings.restSound = on;
     _changed();
   }
 
