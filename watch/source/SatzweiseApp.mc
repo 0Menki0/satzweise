@@ -20,6 +20,8 @@ import Toybox.Time;
 import Toybox.Timer;
 import Toybox.WatchUi;
 
+(:debug) const DEMO_MODE = "setRunning";
+
 class SatzweiseApp extends Application.AppBase {
     // Letzter Stand vom Handy (oder lokal fortgeschrieben).
     var state as Dictionary? = null;
@@ -29,6 +31,8 @@ class SatzweiseApp extends Application.AppBase {
     var connected as Boolean = false;
     var session as ActivityRecording.Session? = null;
     var restFinishedAt as Number = 0;
+    // Testbuild mit Beispieldaten: nichts ans Handy senden.
+    var demoMode as Boolean = false;
     private var _timer as Timer.Timer? = null;
 
     function initialize() {
@@ -44,9 +48,46 @@ class SatzweiseApp extends Application.AppBase {
         if (Communications has :registerForPhoneAppMessages) {
             Communications.registerForPhoneAppMessages(method(:onPhone));
         }
+        demo();
         _timer = new Timer.Timer();
         _timer.start(method(:tick), 1000, true);
         transmit("hello");
+    }
+
+    // Nur im Testbuild (ohne -r): Beispieltraining für den Simulator.
+    (:debug)
+    function demo() as Void {
+        if (state != null) {
+            return;
+        }
+        demoMode = true;
+        var t = now();
+        var mode = DEMO_MODE;
+        state = {
+            "idle" => false, "title" => "Kniebeuge · Satz 2", "text" => "8 × 85 kg · Gerät 12", "day" => "Limbs · Studio",
+            "status" => mode, "startS" => t - 1452, "setStartS" => t - 34,
+            "restStartS" => t - 18, "restEndS" => t + 72, "sound" => false,
+            "rows" => [], "wide" => null,
+            "set" => {"ex" => "Kniebeuge", "no" => 2, "reps" => 8, "w" => 85.0, "step" => 2.5, "bw" => false, "rest" => 90, "doneCount" => 1}
+        };
+        if ("feedback".equals(mode)) {
+            state = {
+                "idle" => false, "title" => "Kniebeuge: Wie war's?", "text" => "8 / 8 / 7 Wdh. · 85 kg", "day" => "Limbs · Studio",
+                "status" => "none", "startS" => t - 1700,
+                "rows" => [[{"id" => "rate:leicht", "label" => "Leicht"}, {"id" => "rate:passend", "label" => "Passend", "p" => true}, {"id" => "rate:schwer", "label" => "Schwer"}]],
+                "wide" => {"id" => "undo", "label" => "↶ Zurück"}
+            };
+        } else if ("idle".equals(mode)) {
+            state = {
+                "idle" => true, "title" => "Heute dran: Limbs", "text" => "Wo trainierst du?", "day" => "Satzweise",
+                "rows" => [[{"id" => "go:limbs:studio", "label" => "Studio", "p" => true}, {"id" => "go:limbs:home", "label" => "Daheim"}]],
+                "wide" => {"id" => "go:gk:studio", "label" => "Ganzkörper"}
+            };
+        }
+    }
+
+    (:release)
+    function demo() as Void {
     }
 
     function onStop(params as Dictionary?) as Void {
@@ -80,7 +121,11 @@ class SatzweiseApp extends Application.AppBase {
         }
         state = data;
         if (data["idle"] == true) {
-            Storage.setValue("idle", data);
+            try {
+                Storage.setValue("idle", data);
+            } catch (e) {
+                // Nur ein Zwischenspeicher für den Start ohne Handy.
+            }
             var ended = data["ended"];
             if (ended != null) {
                 endRecording(ended.equals("saved"));
@@ -97,7 +142,7 @@ class SatzweiseApp extends Application.AppBase {
     }
 
     function flush() as Void {
-        if (sending || queue.size() == 0) {
+        if (demoMode || sending || queue.size() == 0) {
             return;
         }
         sending = true;
