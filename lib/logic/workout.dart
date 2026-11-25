@@ -1,0 +1,132 @@
+import '../data/models.dart';
+import 'coach.dart';
+
+enum Phase { set, feedback, recommend, next, summary }
+
+/// Zustand eines laufenden Trainings. Zeiten werden als Zeitpunkte gespeichert,
+/// nicht als Zähler: So stimmen Gesamtzeit, Satzzeit und Pause auch dann, wenn
+/// die App im Hintergrund war oder neu gestartet wurde.
+class ActiveWorkout {
+  ActiveWorkout({
+    required this.plan,
+    required this.day,
+    required this.startedAt,
+    required this.restSec,
+    this.phase = Phase.next,
+    this.exercise,
+    List<SetEntry>? sets,
+    this.current = 0,
+    this.setStartedAt,
+    this.restEndsAt,
+    this.finishedAt,
+    this.recommendation,
+    this.recommendationReason,
+    List<ExerciseLog>? items,
+    this.machine = '',
+    this.note = '',
+    this.lastMachine = '',
+    this.rating,
+  })  : sets = sets ?? [],
+        items = items ?? [];
+
+  final String plan;
+  final String day;
+  final DateTime startedAt;
+
+  /// Pausenzeit für dieses Training (Standard aus den Einstellungen, im
+  /// Training um ±15 s änderbar).
+  int restSec;
+  Phase phase;
+  String? exercise;
+  List<SetEntry> sets;
+  int current;
+  DateTime? setStartedAt;
+  DateTime? restEndsAt;
+  DateTime? finishedAt;
+  double? recommendation;
+  String? recommendationReason;
+  final List<ExerciseLog> items;
+  String machine;
+  String note;
+  String lastMachine;
+  Rating? rating;
+
+  Set<String> get done => {for (final i in items) i.exercise};
+  SetEntry? get currentSet => current < sets.length ? sets[current] : null;
+
+  int elapsedSec(DateTime now) => (finishedAt ?? now).difference(startedAt).inSeconds;
+
+  int restRemaining(DateTime now) {
+    if (restEndsAt == null) return 0;
+    final r = restEndsAt!.difference(now).inMilliseconds;
+    return r <= 0 ? 0 : (r / 1000).ceil();
+  }
+
+  bool resting(DateTime now) => restRemaining(now) > 0;
+
+  int setElapsedSec(DateTime now) {
+    if (setStartedAt == null || resting(now)) return 0;
+    final start = restEndsAt != null && restEndsAt!.isAfter(setStartedAt!) ? restEndsAt! : setStartedAt!;
+    final s = now.difference(start).inSeconds;
+    return s < 0 ? 0 : s;
+  }
+
+  Map<String, dynamic> toJson() => {
+        'plan': plan,
+        'day': day,
+        'startedAt': startedAt.toIso8601String(),
+        'restSec': restSec,
+        'phase': phase.name,
+        'exercise': exercise,
+        'sets': sets.map((s) => s.toJson()).toList(),
+        'current': current,
+        'setStartedAt': setStartedAt?.toIso8601String(),
+        'restEndsAt': restEndsAt?.toIso8601String(),
+        'finishedAt': finishedAt?.toIso8601String(),
+        'recommendation': recommendation,
+        'recommendationReason': recommendationReason,
+        'items': items.map((i) => i.toJson()).toList(),
+        'machine': machine,
+        'note': note,
+        'lastMachine': lastMachine,
+        'rating': rating?.name,
+      };
+
+  static DateTime? _d(Object? v) => v == null ? null : DateTime.parse(v as String);
+
+  factory ActiveWorkout.fromJson(Map<String, dynamic> j) => ActiveWorkout(
+        plan: j['plan'] as String,
+        day: j['day'] as String,
+        startedAt: DateTime.parse(j['startedAt'] as String),
+        restSec: j['restSec'] as int,
+        phase: Phase.values.byName(j['phase'] as String),
+        exercise: j['exercise'] as String?,
+        sets: (j['sets'] as List).map((s) => SetEntry.fromJson(s as Map<String, dynamic>)).toList(),
+        current: j['current'] as int,
+        setStartedAt: _d(j['setStartedAt']),
+        restEndsAt: _d(j['restEndsAt']),
+        finishedAt: _d(j['finishedAt']),
+        recommendation: (j['recommendation'] as num?)?.toDouble(),
+        recommendationReason: j['recommendationReason'] as String?,
+        items: (j['items'] as List).map((i) => ExerciseLog.fromJson(i as Map<String, dynamic>)).toList(),
+        machine: j['machine'] as String? ?? '',
+        note: j['note'] as String? ?? '',
+        lastMachine: j['lastMachine'] as String? ?? '',
+        rating: j['rating'] == null ? null : Rating.values.byName(j['rating'] as String),
+      );
+
+  ActiveWorkout clone() => ActiveWorkout.fromJson(toJson());
+}
+
+/// Hilfsfunktion für die Anzeige von Zeiten.
+String clock(int sec) {
+  final h = sec ~/ 3600, m = (sec % 3600) ~/ 60, s = sec % 60;
+  String two(int v) => v.toString().padLeft(2, '0');
+  return h > 0 ? '$h:${two(m)}:${two(s)}' : '$m:${two(s)}';
+}
+
+/// Vorbelegung der Sätze für eine neu gewählte Übung.
+List<SetEntry> plannedSets(Exercise e, ExerciseLog? last, {int count = 3}) {
+  final p = prefill(e, last);
+  return List.generate(count, (_) => SetEntry(reps: p.reps, weight: p.weight));
+}
