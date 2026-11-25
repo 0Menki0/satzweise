@@ -12,6 +12,7 @@ class ActiveWorkout {
     required this.day,
     required this.startedAt,
     required this.restSec,
+    this.place = Place.studio,
     this.phase = Phase.next,
     this.exercise,
     List<SetEntry>? sets,
@@ -33,6 +34,7 @@ class ActiveWorkout {
 
   final String plan;
   final String day;
+  final Place place;
   final DateTime startedAt;
 
   /// Pausenzeit für dieses Training (Standard aus den Einstellungen, im
@@ -82,6 +84,7 @@ class ActiveWorkout {
   Map<String, dynamic> toJson() => {
         'plan': plan,
         'day': day,
+        'place': place.name,
         'startedAt': startedAt.toIso8601String(),
         'restSec': restSec,
         'phase': phase.name,
@@ -106,6 +109,7 @@ class ActiveWorkout {
   factory ActiveWorkout.fromJson(Map<String, dynamic> j) => ActiveWorkout(
         plan: j['plan'] as String,
         day: j['day'] as String,
+        place: Place.values.byName(j['place'] as String? ?? 'studio'),
         startedAt: DateTime.parse(j['startedAt'] as String),
         restSec: j['restSec'] as int,
         phase: Phase.values.byName(j['phase'] as String),
@@ -141,7 +145,7 @@ String clock(int sec) {
 List<int> repPlan(Exercise e, ExerciseLog? last) {
   final p = prefill(e, last);
   if (last == null || p.increased) return const [];
-  return [for (final s in last.sets) s.reps.clamp(0, e.repMax)];
+  return [for (final s in last.sets) e.bodyweight ? s.reps : s.reps.clamp(0, e.repMax)];
 }
 
 /// Erster Satz einer neu gewählten Übung.

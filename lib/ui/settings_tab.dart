@@ -59,7 +59,6 @@ class _SettingsTabState extends State<SettingsTab> {
     final c = widget.c, col = AppColors.of(context);
     final q = search.text.trim().toLowerCase();
     final found = c.exercises.where((e) => e.name.toLowerCase().contains(q)).toList();
-    final days = {for (final s in c.sessions) s.day}.toList();
     return ListView(padding: const EdgeInsets.fromLTRB(18, 8, 18, 24), children: [
       Text('Einstellungen', style: display(context, 30)),
       SectionTitle('Standard-Pausenzeit', trailing: 'gilt für jedes neue Training'),
@@ -87,21 +86,6 @@ class _SettingsTabState extends State<SettingsTab> {
         subtitle: Text('Zusätzlich zur Vibration, mit dem Benachrichtigungston deines Handys',
             style: TextStyle(fontSize: 13, color: col.mute)),
       ),
-      if (days.isNotEmpty) ...[
-        const SectionTitle('Gelernte Abläufe', trailing: 'aus deinen Trainings'),
-        for (final d in days)
-          Container(
-            width: double.infinity,
-            margin: const EdgeInsets.only(bottom: 8),
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(color: col.soft, borderRadius: BorderRadius.circular(12)),
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              DayTag(d, suffix: ' · aus ${c.sessions.where((s) => s.day == d).length} Trainings'),
-              const SizedBox(height: 4),
-              Text(usualOrder(c.sessions, d).join(' → ').ifEmpty('noch zu wenige Daten'), style: const TextStyle(fontSize: 13)),
-            ]),
-          ),
-      ],
       SectionTitle('Meine Übungen', trailing: '${c.selected.length} ausgewählt'),
       TextField(
         controller: search,
@@ -153,7 +137,8 @@ class _ExerciseRow extends StatelessWidget {
               MachineBadge(e.machine),
             ]),
             Text(
-                '${e.repMin}–${e.repMax} Wdh. · +${fmtKg(e.step)} kg${e.custom ? ' · eigene' : ''}${e.note.isEmpty ? '' : ' · ${e.note}'}',
+                '${e.repMin}–${e.repMax} Wdh.${e.bodyweight ? ' · Körpergewicht' : ' · +${fmtKg(e.step)} kg'}'
+                '${e.home ? ' · auch daheim' : ''}${e.custom ? ' · eigene' : ''}${e.note.isEmpty ? '' : ' · ${e.note}'}',
                 style: TextStyle(fontSize: 13, color: col.mute)),
             if (counts.isNotEmpty)
               Padding(
@@ -161,6 +146,13 @@ class _ExerciseRow extends StatelessWidget {
                 child: Wrap(spacing: 10, children: [for (final x in counts) DayTag(x.key, suffix: ' ${x.value}×')]),
               ),
           ]),
+        ),
+        IconButton(
+          onPressed: () => c.toggleHome(e.name),
+          tooltip: e.home ? 'Daheim möglich: ja' : 'Daheim möglich: nein',
+          isSelected: e.home,
+          icon: Icon(Icons.home_outlined, color: col.mute.withValues(alpha: .5)),
+          selectedIcon: Icon(Icons.home, color: col.blue),
         ),
         IconButton(onPressed: onEdit, tooltip: 'Gerät und Notiz bearbeiten', icon: const Icon(Icons.edit_outlined)),
         IconButton.filled(
@@ -193,6 +185,7 @@ class _CreateExercisePageState extends State<_CreateExercisePage> {
   final machine = TextEditingController(), note = TextEditingController();
   MuscleGroup group = MuscleGroup.brust;
   String? pictogram;
+  bool home = false, bodyweight = false;
   String? error;
 
   double? _num(TextEditingController t) => double.tryParse(t.text.replaceAll(',', '.'));
@@ -208,6 +201,8 @@ class _CreateExercisePageState extends State<_CreateExercisePage> {
       machine: machine.text,
       note: note.text,
       pictogram: pictogram,
+      home: home,
+      bodyweight: bodyweight,
     );
     if (err != null) {
       setState(() => error = err);
@@ -276,14 +271,26 @@ class _CreateExercisePageState extends State<_CreateExercisePage> {
             ),
           ),
         ]),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('Mit Körpergewicht'),
+          subtitle: const Text('Startgewicht = Zusatzgewicht, meist 0'),
+          value: bodyweight,
+          onChanged: (v) => setState(() {
+            bodyweight = v;
+            if (v) weight.text = '0';
+          }),
+        ),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('Auch daheim möglich'),
+          value: home || bodyweight,
+          onChanged: bodyweight ? null : (v) => setState(() => home = v),
+        ),
         if (error != null) Padding(padding: const EdgeInsets.only(top: 12), child: Text(error!, style: const TextStyle(color: AppColors.red))),
         const SizedBox(height: 16),
         FilledButton(onPressed: _save, child: const Text('Speichern')),
       ]),
     );
   }
-}
-
-extension on String {
-  String ifEmpty(String other) => isEmpty ? other : this;
 }

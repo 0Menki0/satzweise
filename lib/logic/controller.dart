@@ -65,6 +65,7 @@ class AppController extends ChangeNotifier {
       }
     } else {
       exercises = (j['exercises'] as List).map((e) => Exercise.fromJson(e as Map<String, dynamic>)).toList();
+      _mergeNewDefaults(j['exercises'] as List);
       sessions = (j['sessions'] as List).map((s) => Session.fromJson(s as Map<String, dynamic>)).toList();
       settings = Settings.fromJson((j['settings'] as Map<String, dynamic>?) ?? {});
       final w = j['workout'];
@@ -74,6 +75,23 @@ class AppController extends ChangeNotifier {
     _wasResting = workout?.resting(now) ?? false;
     _startTicker();
     notifyListeners();
+  }
+
+  /// Übungen, die in einer neueren App-Version dazugekommen sind, in den
+  /// gespeicherten Katalog übernehmen; bei älteren Einträgen fehlt noch, ob
+  /// sie daheim gehen.
+  void _mergeNewDefaults(List<dynamic> raw) {
+    final hadHomeFlag = raw.isNotEmpty && (raw.first as Map).containsKey('home');
+    for (final d in defaultExercises()) {
+      final e = tryExercise(d.name);
+      if (e == null) {
+        exercises.add(d);
+      } else if (!hadHomeFlag) {
+        e
+          ..home = d.home
+          ..bodyweight = d.bodyweight;
+      }
+    }
   }
 
   Map<String, dynamic> toJson() => {
@@ -128,7 +146,13 @@ class AppController extends ChangeNotifier {
   List<Suggestion> suggestions({int max = 3}) {
     final w = workout!;
     return suggestNext(
-        sessions: sessions, exercises: exercises, dayId: w.day, previous: w.items.lastOrNull?.exercise, done: w.done, max: max);
+        sessions: sessions,
+        exercises: exercises,
+        dayId: w.day,
+        place: w.place,
+        previous: w.items.lastOrNull?.exercise,
+        done: w.done,
+        max: max);
   }
 
   WorkoutSummary summary() => summarize(sessions, workout!.day, workout!.items);
@@ -161,9 +185,10 @@ class AppController extends ChangeNotifier {
 
   // ---------------------------------------------------------------- Training
 
-  void startWorkout(String dayId) {
-    _snap('${dayById(dayId).name} gestartet');
-    workout = ActiveWorkout(plan: dayById(dayId).planId, day: dayId, startedAt: now, restSec: settings.restSec);
+  void startWorkout(String dayId, {Place place = Place.studio}) {
+    _snap('${dayById(dayId).name} ${place.label.toLowerCase()} gestartet');
+    workout = ActiveWorkout(
+        plan: dayById(dayId).planId, day: dayId, place: place, startedAt: now, restSec: settings.restSec);
     _changed();
   }
 
@@ -212,6 +237,17 @@ class AppController extends ChangeNotifier {
     if (nw < 0) return;
     _snap(direction > 0 ? 'Gewicht erhöht' : 'Gewicht gesenkt');
     s.weight = nw;
+    _changed();
+  }
+
+  /// Gewicht von Hand eintragen (nur in der App, nicht auf dem Sperrbildschirm).
+  void setWeight(double kg) {
+    final s = workout?.currentSet;
+    if (s == null || kg < 0 || kg > 1000) return;
+    final rounded = (kg * 100).round() / 100;
+    if (rounded == s.weight) return;
+    _snap('Gewicht auf ${fmtKg(rounded)} kg gesetzt');
+    s.weight = rounded;
     _changed();
   }
 
@@ -329,6 +365,7 @@ class AppController extends ChangeNotifier {
       durationSec: w.elapsedSec(now),
       plan: w.plan,
       day: w.day,
+      place: w.place,
       items: w.items.map((i) => i.copy()).toList(),
     ));
     workout = null;
@@ -371,6 +408,12 @@ class AppController extends ChangeNotifier {
     _changed();
   }
 
+  void toggleHome(String name) {
+    final e = exercise(name);
+    e.home = !e.home;
+    _changed();
+  }
+
   void editExercise(String name, {required String machine, required String note}) {
     exercise(name)
       ..machine = machine.trim()
@@ -389,6 +432,8 @@ class AppController extends ChangeNotifier {
     String machine = '',
     String note = '',
     String? pictogram,
+    bool home = false,
+    bool bodyweight = false,
   }) {
     final n = name.trim().replaceAll(RegExp(r'\s+'), ' ');
     if (n.isEmpty) return 'Bitte einen Namen eingeben.';
@@ -409,6 +454,8 @@ class AppController extends ChangeNotifier {
       machine: machine.trim(),
       note: note.trim(),
       pictogram: pictogram,
+      home: home || bodyweight,
+      bodyweight: bodyweight,
     ));
     _changed();
     return null;

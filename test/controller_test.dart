@@ -244,4 +244,62 @@ void main() {
     c.setRestSound(true);
     expect(c.toJson()['settings'], {'restSec': 90, 'restSound': true});
   });
+
+  test('Studio und daheim: Ort wird gespeichert, daheim nur passende Übungen', () {
+    c.startWorkout('torso', place: Place.home);
+    expect(c.workout!.place, Place.home);
+    final names = c.suggestions(max: 3).map((s) => s.exercise);
+    expect(names, isNotEmpty);
+    for (final n in names) {
+      expect(c.exercise(n).home, isTrue, reason: '$n muss daheim gehen');
+    }
+    c.pickExercise('Liegestütze');
+    c.completeSet();
+    c.endExercise();
+    c.rate(Rating.passend);
+    c.finishExercise(accept: true);
+    c.finishWorkout();
+    c.saveWorkout();
+    expect(c.sessions.single.place, Place.home);
+  });
+
+  test('Körpergewicht: kein Zusatzgewicht von selbst, Steigerung über Wiederholungen', () {
+    c.startWorkout('torso', place: Place.home);
+    c.pickExercise('Liegestütze');
+    final w = c.workout!;
+    expect(w.sets.first.weight, 0);
+    for (var i = 0; i < 12; i++) {
+      c.changeReps(1);
+    }
+    c.completeSet();
+    c.endExercise();
+    c.rate(Rating.leicht);
+    expect(w.recommendation, 0);
+    expect(w.recommendationReason, contains('Zusatzgewicht'));
+  });
+
+  test('Gewicht von Hand eintragen, mit Zurück', () {
+    c.startWorkout('torso');
+    c.pickExercise('Bankdrücken');
+    c.setWeight(43.75);
+    expect(c.workout!.sets.single.weight, 43.75);
+    c.undo();
+    expect(c.workout!.sets.single.weight, 40);
+    c.setWeight(-5);
+    expect(c.workout!.sets.single.weight, 40, reason: 'ungültige Werte werden ignoriert');
+  });
+
+  test('gespeicherte Daten älterer Versionen bekommen die neuen Übungen', () async {
+    final old = c.toJson();
+    old['exercises'] = [
+      for (final e in (old['exercises'] as List).cast<Map<String, dynamic>>())
+        if (e['name'] != 'Liegestütze' && e['name'] != 'Crunches') {...e}..remove('home')..remove('bodyweight'),
+    ];
+    final c2 = AppController(store: MemoryStore(old), now: () => t);
+    await c2.load();
+    expect(c2.tryExercise('Liegestütze')?.bodyweight, isTrue);
+    expect(c2.exercise('Rudern Kurzhantel').home, isTrue);
+    expect(c2.exercise('Latzug').home, isFalse);
+    c2.dispose();
+  });
 }

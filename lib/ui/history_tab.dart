@@ -22,7 +22,7 @@ class _HistoryTabState extends State<HistoryTab> {
   bool sessionsView = true;
   String dayFilter = 'all';
   String? open;
-  String? exercise;
+  Set<String> picked = {};
   String machine = 'all';
 
   @override
@@ -83,7 +83,7 @@ class _HistoryTabState extends State<HistoryTab> {
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Row(children: [
                 Expanded(child: Text(dayLabel(s.start), style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15))),
-                DayTag(s.day),
+                DayTag(s.day, suffix: ' · ${s.place.label}'),
               ]),
               Text('${(s.durationSec / 60).round()} min · ${s.items.length} Übungen · ${s.setCount} Sätze · ${kg(s.volume)}',
                   style: TextStyle(fontSize: 13, color: col.mute)),
@@ -95,7 +95,7 @@ class _HistoryTabState extends State<HistoryTab> {
                       Expanded(
                           child: Wrap(spacing: 6, children: [Text(it.exercise, style: const TextStyle(fontSize: 13)), MachineBadge(it.machine)])),
                       Flexible(
-                        child: Text('${it.sets.map((x) => '${x.reps}×${fmtKg(x.weight)}').join(' · ')} kg',
+                        child: Text(it.sets.map((x) => setLabel(widget.c.tryExercise(it.exercise), x.reps, x.weight)).join(' · '),
                             textAlign: TextAlign.right, style: const TextStyle(fontSize: 13)),
                       ),
                     ]),
@@ -139,41 +139,83 @@ class _HistoryTabState extends State<HistoryTab> {
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Training gelöscht')));
   }
 
+  static const _palette = [AppColors.red, AppColors.blueLight, Color(0xFF1D8A4D), Color(0xFFB86E00), Color(0xFF7B4FB8), Color(0xFF6B6862)];
+
   List<Widget> _exercises(BuildContext context) {
     final c = widget.c, col = AppColors.of(context);
     final names = <String>{for (final e in c.selected) e.name, for (final s in c.sessions) for (final i in s.items) i.exercise}
         .where((n) => c.sessions.any((s) => s.items.any((i) => i.exercise == n)))
         .toList();
     if (names.isEmpty) return [const Hint(Text('Noch keine Übungen im Verlauf.'))];
-    final ex = names.contains(exercise) ? exercise! : names.first;
-    final full = [
-      for (final s in c.sessions)
-        for (final it in s.items.where((i) => i.exercise == ex)) (date: s.start, day: s.day, log: it),
-    ];
-    final machines = {for (final x in full) if (x.log.machine.isNotEmpty) x.log.machine}.toList();
+    var sel = picked.where(names.contains).toList();
+    if (sel.isEmpty) sel = [names.first];
+    final color = {for (var i = 0; i < sel.length; i++) sel[i]: _palette[i % _palette.length]};
+
+    List<({DateTime date, String day, Place place, ExerciseLog log})> logsOf(String n) => [
+          for (final s in c.sessions)
+            for (final it in s.items.where((i) => i.exercise == n)) (date: s.start, day: s.day, place: s.place, log: it),
+        ];
+    final single = sel.length == 1;
+    final machines = single ? {for (final x in logsOf(sel.first)) if (x.log.machine.isNotEmpty) x.log.machine}.toList() : <String>[];
     final m = machines.contains(machine) ? machine : 'all';
-    final rows = full.where((x) => m == 'all' || x.log.machine == m).toList();
-    final points = rows.reversed.take(12).toList().reversed.toList();
-    final first = points.first.log.topSet, last = points.last.log.topSet;
-    final best = rows.map((x) => best1rm(x.log.sets)).fold<double>(0, math.max);
+    bool keep(ExerciseLog l) => m == 'all' || l.machine == m;
+
+    // Eine Kurve je Übung: Top-Gewicht, bei Körpergewicht die besten Wiederholungen.
+    _Series series(String n) {
+      final e = c.tryExercise(n);
+      final bw = e?.bodyweight ?? false;
+      final pts = [
+        for (final x in logsOf(n).where((x) => keep(x.log)))
+          (x.date, bw ? x.log.sets.map((s) => s.reps.toDouble()).reduce(math.max) : x.log.topSet.weight),
+      ];
+      return _Series(n, color[n]!, pts.length > 12 ? pts.sublist(pts.length - 12) : pts, bw);
+    }
+
+    final all = [for (final n in sel) series(n)];
+    final kgSeries = all.where((x) => !x.reps && x.points.isNotEmpty).toList();
+    final repSeries = all.where((x) => x.reps && x.points.isNotEmpty).toList();
+    final rows = [
+      for (final n in sel)
+        for (final x in logsOf(n).where((x) => keep(x.log))) (n: n, x: x),
+    ]..sort((a, b) => b.x.date.compareTo(a.x.date));
 
     return [
-      Wrap(spacing: 6, runSpacing: 6, children: [
-        for (final n in names)
-          ChoiceChip(
-              label: Text(n),
-              selected: n == ex,
-              onSelected: (_) => setState(() {
-                    exercise = n;
-                    machine = 'all';
-                  })),
-      ]),
+      MenuAnchor(
+        style: const MenuStyle(maximumSize: WidgetStatePropertyAll(Size(360, 460))),
+        menuChildren: [
+          for (final n in names)
+            CheckboxMenuButton(
+              value: sel.contains(n),
+              closeOnActivate: false,
+              onChanged: (v) => setState(() {
+                picked = {...sel};
+                v == true ? picked.add(n) : picked.remove(n);
+                machine = 'all';
+              }),
+              child: Text(n),
+            ),
+        ],
+        builder: (context, ctrl, _) => OutlinedButton(
+          onPressed: () => ctrl.isOpen ? ctrl.close() : ctrl.open(),
+          style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10)),
+          child: Row(children: [
+            Expanded(
+              child: Text(single ? sel.first : '${sel.length} Übungen: ${sel.join(', ')}',
+                  maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 15)),
+            ),
+            const Icon(Icons.arrow_drop_down),
+          ]),
+        ),
+      ),
+      const SizedBox(height: 4),
+      Text('Mehrere Übungen ankreuzen, um sie zu vergleichen.', style: TextStyle(fontSize: 12, color: col.mute)),
       const SizedBox(height: 10),
-      Row(children: [
-        Pictogram(kind: pictogramFor(c.tryExercise(ex), ex), size: 58),
-        const SizedBox(width: 12),
-        Expanded(child: Text(ex, style: display(context, 26))),
-      ]),
+      if (single)
+        Row(children: [
+          Pictogram(kind: pictogramFor(c.tryExercise(sel.first), sel.first), size: 58),
+          const SizedBox(width: 12),
+          Expanded(child: Text(sel.first, style: display(context, 26))),
+        ]),
       if (machines.length > 1) ...[
         const SizedBox(height: 8),
         Wrap(spacing: 6, children: [
@@ -182,60 +224,108 @@ class _HistoryTabState extends State<HistoryTab> {
                 label: Text(x == 'all' ? 'Alle Geräte' : 'Gerät $x'), selected: m == x, onSelected: (_) => setState(() => machine = x)),
         ]),
       ],
-      const SizedBox(height: 12),
-      Row(children: [
-        Expanded(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text('${fmtKg(last.weight)} kg', style: display(context, 34, color: AppColors.red)),
-            Text('Top-Gewicht, ${last.weight >= first.weight ? '+' : ''}${fmtKg(last.weight - first.weight)} kg in ${points.length} Einheiten',
-                style: TextStyle(fontSize: 13, color: col.mute)),
-          ]),
-        ),
-        Expanded(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(fmtKg(best.roundToDouble()), style: display(context, 34)),
-            Text('bestes 1RM, geschätzt', style: TextStyle(fontSize: 13, color: col.mute)),
-          ]),
-        ),
-      ]),
-      if (points.length >= 2)
-        SizedBox(
-            height: 200,
-            child: CustomPaint(
-                painter: _LineChart([for (final p in points) p.log.topSet.weight], points.first.date, points.last.date, col),
-                size: Size.infinite)),
-      SectionTitle('Alle Sätze', trailing: 'letzte ${math.min(8, rows.length)} Einheiten'),
-      for (final x in rows.reversed.take(8))
+      const SizedBox(height: 10),
+      for (final x in all)
+        if (x.points.isNotEmpty) _SeriesKpi(x: x, multi: !single, best: single ? logsOf(x.name).map((l) => best1rm(l.log.sets)).fold<double>(0, math.max) : null),
+      if (kgSeries.any((x) => x.points.length >= 2)) ...[
+        const SizedBox(height: 6),
+        Text('Top-Gewicht in kg', style: TextStyle(fontSize: 12, color: col.mute)),
+        SizedBox(height: 200, child: CustomPaint(painter: _LineChart(kgSeries, col), size: Size.infinite)),
+      ],
+      if (repSeries.any((x) => x.points.length >= 2)) ...[
+        const SizedBox(height: 6),
+        Text('Beste Wiederholungen (Körpergewicht)', style: TextStyle(fontSize: 12, color: col.mute)),
+        SizedBox(height: 180, child: CustomPaint(painter: _LineChart(repSeries, col), size: Size.infinite)),
+      ],
+      SectionTitle('Alle Sätze', trailing: 'letzte ${math.min(12, rows.length)} Einheiten'),
+      for (final r in rows.take(12))
         Container(
           padding: const EdgeInsets.symmetric(vertical: 10),
           decoration: BoxDecoration(border: Border(bottom: BorderSide(color: col.line))),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Row(children: [
-              Text(dayLabel(x.date), style: const TextStyle(fontWeight: FontWeight.w600)),
+              if (!single) ...[
+                Container(width: 10, height: 10, decoration: BoxDecoration(color: color[r.n], shape: BoxShape.circle)),
+                const SizedBox(width: 6),
+              ],
+              Flexible(
+                child: Text('${dayLabel(r.x.date)}${single ? '' : ' · ${r.n}'}',
+                    overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600)),
+              ),
               const SizedBox(width: 8),
-              DayTag(x.day),
+              DayTag(r.x.day, suffix: r.x.place == Place.home ? ' · Daheim' : ''),
               const Spacer(),
-              MachineBadge(x.log.machine),
+              MachineBadge(r.x.log.machine),
               const SizedBox(width: 6),
-              Text(kg(x.log.volume), style: TextStyle(fontSize: 13, color: col.mute)),
+              if (r.x.log.volume > 0) Text(kg(r.x.log.volume), style: TextStyle(fontSize: 13, color: col.mute)),
             ]),
             const SizedBox(height: 6),
             Wrap(spacing: 6, runSpacing: 6, children: [
-              for (final s in x.log.sets)
+              for (final s in r.x.log.sets)
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                   decoration: BoxDecoration(color: col.soft, borderRadius: BorderRadius.circular(8)),
-                  child: Text.rich(TextSpan(children: [
-                    TextSpan(text: '${s.reps} × ${fmtKg(s.weight)}', style: display(context, 17, weight: FontWeight.w600)),
-                    TextSpan(text: ' kg', style: TextStyle(fontSize: 11, color: col.mute)),
-                  ])),
+                  child: Text(setLabel(c.tryExercise(r.n), s.reps, s.weight), style: display(context, 16, weight: FontWeight.w600)),
                 ),
             ]),
-            if (x.log.note.isNotEmpty)
-              Padding(padding: const EdgeInsets.only(top: 4), child: Text(x.log.note, style: TextStyle(fontSize: 12, color: col.mute))),
+            if (r.x.log.note.isNotEmpty)
+              Padding(padding: const EdgeInsets.only(top: 4), child: Text(r.x.log.note, style: TextStyle(fontSize: 12, color: col.mute))),
           ]),
         ),
     ];
+  }
+}
+
+class _Series {
+  _Series(this.name, this.color, this.points, this.reps);
+  final String name;
+  final Color color;
+  final List<(DateTime, double)> points;
+
+  /// true = Wiederholungen statt kg.
+  final bool reps;
+}
+
+class _SeriesKpi extends StatelessWidget {
+  const _SeriesKpi({required this.x, required this.multi, this.best});
+  final _Series x;
+  final bool multi;
+  final double? best;
+
+  @override
+  Widget build(BuildContext context) {
+    final col = AppColors.of(context);
+    final first = x.points.first.$2, last = x.points.last.$2, d = last - first;
+    String v(double n) => x.reps ? '${n.round()} Wdh.' : '${fmtKg(n)} kg';
+    final change = '${d >= 0 ? '+' : ''}${x.reps ? '${d.round()} Wdh.' : '${fmtKg(d)} kg'} in ${x.points.length} Einheiten';
+    if (!multi) {
+      return Row(children: [
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(v(last), style: display(context, 34, color: AppColors.red)),
+            Text('${x.reps ? 'Beste Wiederholungen' : 'Top-Gewicht'}, $change', style: TextStyle(fontSize: 13, color: col.mute)),
+          ]),
+        ),
+        if (best != null && !x.reps)
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(fmtKg(best!.roundToDouble()), style: display(context, 34)),
+              Text('bestes 1RM, geschätzt', style: TextStyle(fontSize: 13, color: col.mute)),
+            ]),
+          ),
+      ]);
+    }
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(children: [
+        Container(width: 10, height: 10, decoration: BoxDecoration(color: x.color, shape: BoxShape.circle)),
+        const SizedBox(width: 8),
+        Expanded(child: Text(x.name, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600))),
+        Text(v(last), style: display(context, 18)),
+        const SizedBox(width: 8),
+        Text(change.split(' in ').first, style: TextStyle(fontSize: 12, color: d >= 0 ? col.green : col.amber)),
+      ]),
+    );
   }
 }
 
@@ -276,41 +366,51 @@ class _BarChart extends CustomPainter {
 }
 
 class _LineChart extends CustomPainter {
-  _LineChart(this.values, this.from, this.to, this.col);
-  final List<double> values;
-  final DateTime from, to;
+  _LineChart(this.series, this.col);
+  final List<_Series> series;
   final AppColors col;
 
   @override
   void paint(Canvas canvas, Size size) {
     const l = 34.0, r = 14.0, t = 16.0, b = 22.0;
-    final lo = (values.reduce(math.min) * .95).floorToDouble(), hi = (values.reduce(math.max) * 1.03).ceilToDouble();
-    double x(int i) => l + i * (size.width - l - r) / (values.length - 1);
+    final pts = [for (final s in series) ...s.points];
+    if (pts.isEmpty) return;
+    final vals = pts.map((p) => p.$2);
+    final lo = (vals.reduce(math.min) * .95).floorToDouble(), hi = (vals.reduce(math.max) * 1.03).ceilToDouble();
+    final from = pts.map((p) => p.$1).reduce((a, b) => a.isBefore(b) ? a : b);
+    final to = pts.map((p) => p.$1).reduce((a, b) => a.isAfter(b) ? a : b);
+    final span = math.max(1, to.difference(from).inMinutes);
+    double x(DateTime d) => l + d.difference(from).inMinutes / span * (size.width - l - r);
     double y(double v) => t + (hi - v) * (size.height - t - b) / (hi - lo == 0 ? 1 : hi - lo);
     for (final v in [lo, (lo + hi) / 2, hi]) {
       canvas.drawLine(Offset(l, y(v)), Offset(size.width - r, y(v)), Paint()..color = col.line);
       final tp = _label('${v.round()}', col.mute);
       tp.paint(canvas, Offset(l - 6 - tp.width, y(v) - tp.height / 2));
     }
-    final line = Path(), area = Path()..moveTo(x(0), size.height - b);
-    for (var i = 0; i < values.length; i++) {
-      final p = Offset(x(i), y(values[i]));
-      i == 0 ? line.moveTo(p.dx, p.dy) : line.lineTo(p.dx, p.dy);
-      area.lineTo(p.dx, p.dy);
-    }
-    area
-      ..lineTo(x(values.length - 1), size.height - b)
-      ..close();
-    canvas.drawPath(area, Paint()..color = AppColors.red.withValues(alpha: .14));
-    canvas.drawPath(
-        line,
-        Paint()
-          ..color = AppColors.red
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 2.5
-          ..strokeJoin = StrokeJoin.round);
-    for (var i = 0; i < values.length; i++) {
-      canvas.drawCircle(Offset(x(i), y(values[i])), i == values.length - 1 ? 5 : 3, Paint()..color = AppColors.red);
+    for (final s in series) {
+      if (s.points.isEmpty) continue;
+      final line = Path();
+      for (var i = 0; i < s.points.length; i++) {
+        final p = Offset(x(s.points[i].$1), y(s.points[i].$2));
+        i == 0 ? line.moveTo(p.dx, p.dy) : line.lineTo(p.dx, p.dy);
+      }
+      if (series.length == 1 && s.points.length > 1) {
+        final area = Path.from(line)
+          ..lineTo(x(s.points.last.$1), size.height - b)
+          ..lineTo(x(s.points.first.$1), size.height - b)
+          ..close();
+        canvas.drawPath(area, Paint()..color = s.color.withValues(alpha: .14));
+      }
+      canvas.drawPath(
+          line,
+          Paint()
+            ..color = s.color
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 2.5
+            ..strokeJoin = StrokeJoin.round);
+      for (var i = 0; i < s.points.length; i++) {
+        canvas.drawCircle(Offset(x(s.points[i].$1), y(s.points[i].$2)), i == s.points.length - 1 ? 5 : 3, Paint()..color = s.color);
+      }
     }
     _label(dayLabel(from), col.mute).paint(canvas, Offset(l, size.height - 14));
     final e = _label(dayLabel(to), col.mute);

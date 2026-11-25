@@ -15,6 +15,15 @@ enum MuscleGroup {
   final String label;
 }
 
+/// Wo trainiert wird.
+enum Place {
+  studio('Studio'),
+  home('Daheim');
+
+  const Place(this.label);
+  final String label;
+}
+
 enum Rating {
   leicht('Leicht', 'noch 3+ Wdh. drin'),
   passend('Passend', '1–2 Wdh. drin'),
@@ -39,10 +48,21 @@ class Exercise {
     this.note = '',
     this.pictogram,
     this.nextWeight,
+    this.bodyweight = false,
+    this.home = false,
   });
 
   final String name;
   MuscleGroup group;
+
+  /// Übung mit dem eigenen Körpergewicht; das Gewicht ist Zusatzgewicht
+  /// (0 = ohne).
+  bool bodyweight;
+
+  /// Auch daheim möglich (im Studio geht jede Übung).
+  bool home;
+
+  bool availableAt(Place p) => p == Place.studio || home;
   int repMin;
   int repMax;
 
@@ -77,6 +97,8 @@ class Exercise {
         'note': note,
         if (pictogram != null) 'pictogram': pictogram,
         if (nextWeight != null) 'nextWeight': nextWeight,
+        'bodyweight': bodyweight,
+        'home': home,
       };
 
   factory Exercise.fromJson(Map<String, dynamic> j) => Exercise(
@@ -92,6 +114,8 @@ class Exercise {
         note: j['note'] as String? ?? '',
         pictogram: j['pictogram'] as String?,
         nextWeight: (j['nextWeight'] as num?)?.toDouble(),
+        bodyweight: j['bodyweight'] as bool? ?? false,
+        home: j['home'] as bool? ?? false,
       );
 }
 
@@ -194,6 +218,7 @@ class Session {
     required this.plan,
     required this.day,
     required this.items,
+    this.place = Place.studio,
   });
 
   final String id;
@@ -201,6 +226,7 @@ class Session {
   final int durationSec;
   final String plan;
   final String day;
+  final Place place;
   final List<ExerciseLog> items;
 
   double get volume => items.fold(0, (a, i) => a + i.volume);
@@ -212,6 +238,7 @@ class Session {
         'durationSec': durationSec,
         'plan': plan,
         'day': day,
+        'place': place.name,
         'items': items.map((i) => i.toJson()).toList(),
       };
 
@@ -221,6 +248,7 @@ class Session {
         durationSec: j['durationSec'] as int,
         plan: j['plan'] as String,
         day: j['day'] as String,
+        place: Place.values.byName(j['place'] as String? ?? 'studio'),
         items: (j['items'] as List)
             .map((i) => ExerciseLog.fromJson(i as Map<String, dynamic>))
             .toList(),

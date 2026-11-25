@@ -69,10 +69,14 @@ class StepField extends StatelessWidget {
     this.minusLabel = '−',
     this.plusLabel = '+',
     this.semantics = '',
+    this.onTapValue,
   });
 
   final String value, unit, minusLabel, plusLabel, semantics;
   final VoidCallback onMinus, onPlus;
+
+  /// Optional: Tipp auf den Wert, z. B. zum Eintippen.
+  final VoidCallback? onTapValue;
 
   @override
   Widget build(BuildContext context) {
@@ -100,10 +104,18 @@ class StepField extends StatelessWidget {
       child: Row(children: [
         btn(minusLabel, onMinus, '$semantics verringern'),
         Expanded(
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            Text(value, style: display(context, 26)),
-            Text(unit, style: TextStyle(fontSize: 11, color: c.mute)),
-          ]),
+          child: Semantics(
+            button: onTapValue != null,
+            label: onTapValue == null ? null : '$semantics eintippen',
+            child: InkWell(
+              onTap: onTapValue,
+              borderRadius: BorderRadius.circular(8),
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                FittedBox(fit: BoxFit.scaleDown, child: Text(value, style: display(context, 26))),
+                Text(unit, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 11, color: c.mute)),
+              ]),
+            ),
+          ),
         ),
         btn(plusLabel, onPlus, '$semantics erhöhen'),
       ]),

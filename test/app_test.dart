@@ -20,7 +20,7 @@ void main() {
 
     expect(find.text('Was trainierst du heute?'), findsOneWidget);
     expect(find.text('dran'), findsOneWidget);
-    await tester.tap(find.text('Torso starten'));
+    await tester.tap(find.text('Torso im Studio starten'));
     await tester.pump();
 
     expect(find.text('Womit startest du?'), findsOneWidget);

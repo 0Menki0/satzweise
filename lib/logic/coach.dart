@@ -36,10 +36,10 @@ DayType nextDay(List<Session> sessions, String planId) {
 
 /// Die übliche Reihenfolge an einem Trainingstag, gelernt aus der mittleren
 /// Position jeder Übung. Übungen, die nur einmal vorkamen, zählen nicht.
-List<String> usualOrder(List<Session> sessions, String dayId, {Set<String>? only}) {
+List<String> usualOrder(List<Session> sessions, String dayId, {Set<String>? only, Place? place}) {
   final pos = <String, double>{};
   final count = <String, int>{};
-  for (final s in sessions.where((s) => s.day == dayId)) {
+  for (final s in sessions.where((s) => s.day == dayId && (place == null || s.place == place))) {
     for (var i = 0; i < s.items.length; i++) {
       final n = s.items[i].exercise;
       pos[n] = (pos[n] ?? 0) + i;
@@ -67,23 +67,25 @@ class Suggestion {
 }
 
 /// Schlägt die wahrscheinlich nächste Übung vor. Grundlage sind die bisherigen
-/// Trainings desselben Tages: welche Übung folgte wie oft auf die letzte.
+/// Trainings desselben Tages am selben Ort: welche Übung folgte wie oft auf
+/// die letzte. Vorgeschlagen wird nur, was am Ort möglich ist.
 List<Suggestion> suggestNext({
   required List<Session> sessions,
   required List<Exercise> exercises,
   required String dayId,
   required String? previous,
   required Set<String> done,
+  Place place = Place.studio,
   int max = 3,
 }) {
   final day = dayById(dayId);
-  final selected = {for (final e in exercises.where((e) => e.selected)) e.name: e};
+  final selected = {for (final e in exercises.where((e) => e.selected && e.availableAt(place))) e.name: e};
   bool ok(String n) => selected.containsKey(n) && !done.contains(n) && n != previous;
 
   final from = previous ?? '';
   final counts = <String, int>{};
   var total = 0;
-  for (final s in sessions.where((s) => s.day == dayId)) {
+  for (final s in sessions.where((s) => s.day == dayId && s.place == place)) {
     for (var i = 0; i < s.items.length; i++) {
       final before = i == 0 ? '' : s.items[i - 1].exercise;
       if (before == from) {
@@ -106,8 +108,9 @@ List<Suggestion> suggestNext({
     if (out.length < max && ok(n) && !out.any((s) => s.exercise == n)) out.add(Suggestion(n, why));
   }
 
-  for (final n in usualOrder(sessions, dayId)) {
-    add(n, 'gehört zu deinem üblichen ${day.name}');
+  final where = place == Place.home ? ' daheim' : '';
+  for (final n in usualOrder(sessions, dayId, place: place)) {
+    add(n, 'gehört zu deinem üblichen ${day.name}$where');
   }
   for (final e in selected.values.where(day.matches)) {
     add(e.name, 'passt zu ${day.name}');
@@ -139,7 +142,7 @@ Prefill prefill(Exercise e, ExerciseLog? last) {
     return Prefill(e.repMin, e.nextWeight ?? e.startWeight, increased: false);
   }
   final top = last.topSet;
-  final allTop = last.sets.every((s) => s.reps >= e.repMax);
+  final allTop = !e.bodyweight && last.sets.every((s) => s.reps >= e.repMax);
   final w = e.nextWeight ?? (allTop ? top.weight + e.step : top.weight);
   final increased = w > top.weight;
   return Prefill(increased ? e.repMin : math.min(e.repMax, top.reps), w, increased: increased);
@@ -149,6 +152,19 @@ class Recommendation {
   const Recommendation(this.weight, this.reason);
   final double weight;
   final String reason;
+}
+
+/// Gewicht zur Anzeige; bei Körpergewicht „Körpergewicht“ bzw. „KG + 5 kg“.
+String weightText(Exercise? e, double w) {
+  if (e != null && e.bodyweight) return w == 0 ? 'Körpergewicht' : 'KG + ${fmtKg(w)} kg';
+  return '${fmtKg(w)} kg';
+}
+
+/// Ein Satz zur Anzeige: „8 × 85 kg“, mit Körpergewicht „15 Wdh.“ bzw.
+/// „15 Wdh. + 5 kg“.
+String setLabel(Exercise? e, int reps, double w) {
+  if (e != null && e.bodyweight) return w == 0 ? '$reps Wdh.' : '$reps Wdh. + ${fmtKg(w)} kg';
+  return '$reps × ${fmtKg(w)} kg';
 }
 
 String fmtKg(double w) {
@@ -169,6 +185,17 @@ Recommendation recommend(Exercise e, List<SetEntry> sets, Rating rating) {
   final allTop = done.every((s) => s.reps >= e.repMax);
   final inRange = done.every((s) => s.reps >= e.repMin);
   final step = fmtKg(e.step);
+  // Mit Körpergewicht wird über Wiederholungen gesteigert, Zusatzgewicht
+  // legt man nur bewusst selbst drauf.
+  if (e.bodyweight) {
+    return switch (rating) {
+      Rating.schwer => Recommendation(w, 'Am Limit: gleich bleiben und sauber ausführen.'),
+      _ when allTop => Recommendation(w,
+          'Alle Sätze bei ${e.repMax} Wdh.: mehr Wiederholungen, eine schwerere Variante oder etwas Zusatzgewicht (z. B. Rucksack).'),
+      Rating.leicht => Recommendation(w, 'Noch Luft: nächstes Mal 2 Wdh. mehr je Satz.'),
+      Rating.passend => Recommendation(w, 'Gleich bleiben, Ziel: 1 Wdh. mehr je Satz.'),
+    };
+  }
   switch (rating) {
     case Rating.leicht when allTop:
       return Recommendation(w + 2 * e.step,

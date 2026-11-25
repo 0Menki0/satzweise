@@ -40,11 +40,13 @@ class TrainingPlan {
 bool Function(Exercise) _groups(List<MuscleGroup> gs) => (e) => gs.contains(e.group);
 
 const _push = {
+  'Liegestütze', 'Diamant-Liegestütze', 'Pike-Liegestütze', 'Dips am Stuhl',
   'Bankdrücken', 'Schrägbankdrücken Kurzhantel', 'Butterfly Maschine', 'Kabelzug Crossover',
   'Dips mit Gewicht', 'Schulterdrücken', 'Military Press', 'Seitheben', 'Trizepsdrücken',
   'French Press',
 };
 const _pull = {
+  'Klimmzüge', 'Tischrudern', 'Superman',
   'Kreuzheben', 'Latzug', 'Rudern Kurzhantel', 'Rudern Langhantel', 'Klimmzüge mit Gewicht',
   'Rudern Kabel sitzend', 'Face Pulls', 'Reverse Butterfly', 'Bizepscurls', 'Hammercurls',
 };
@@ -126,7 +128,7 @@ DayType dayById(String id) =>
     DayType(id: id, name: id, description: '', planId: 'frei', matches: (_) => true);
 
 Exercise _x(String n, MuscleGroup g, int min, int max, double step, double base,
-        {bool sel = false, String machine = '', String note = ''}) =>
+        {bool sel = false, bool home = false, bool bw = false, String? pic}) =>
     Exercise(
         name: n,
         group: g,
@@ -135,41 +137,59 @@ Exercise _x(String n, MuscleGroup g, int min, int max, double step, double base,
         step: step,
         startWeight: base,
         selected: sel,
-        machine: machine,
-        note: note);
+        home: home || bw,
+        bodyweight: bw,
+        pictogram: pic);
 
 /// Vorauswahl an Übungen. Die markierten (sel) sind beim ersten Start in
 /// „Meine Übungen“, alle anderen lassen sich in den Einstellungen hinzufügen.
+/// Vorauswahl an Übungen. Die markierten (sel) sind beim ersten Start in
+/// „Meine Übungen“, alle anderen lassen sich in den Einstellungen hinzufügen.
+/// home = auch daheim möglich (Kurzhanteln, Körpergewicht).
 List<Exercise> defaultExercises() => [
       _x('Bankdrücken', MuscleGroup.brust, 6, 8, 2.5, 40, sel: true),
-      _x('Schrägbankdrücken Kurzhantel', MuscleGroup.brust, 8, 12, 2, 16),
+      _x('Schrägbankdrücken Kurzhantel', MuscleGroup.brust, 8, 12, 2, 16, home: true),
       _x('Butterfly Maschine', MuscleGroup.brust, 10, 15, 2.5, 30),
       _x('Kabelzug Crossover', MuscleGroup.brust, 12, 15, 2.5, 10),
       _x('Dips mit Gewicht', MuscleGroup.brust, 6, 10, 2.5, 0),
+      _x('Liegestütze', MuscleGroup.brust, 8, 20, 2.5, 0, bw: true, sel: true, pic: 'pushup'),
       _x('Kreuzheben', MuscleGroup.ruecken, 4, 6, 5, 60, sel: true),
       _x('Latzug', MuscleGroup.ruecken, 8, 12, 2.5, 40, sel: true),
-      _x('Rudern Kurzhantel', MuscleGroup.ruecken, 8, 12, 2, 16, sel: true),
+      _x('Rudern Kurzhantel', MuscleGroup.ruecken, 8, 12, 2, 16, sel: true, home: true),
       _x('Rudern Langhantel', MuscleGroup.ruecken, 6, 10, 2.5, 40),
       _x('Klimmzüge mit Gewicht', MuscleGroup.ruecken, 5, 8, 2.5, 0),
       _x('Rudern Kabel sitzend', MuscleGroup.ruecken, 10, 12, 2.5, 35),
+      _x('Klimmzüge', MuscleGroup.ruecken, 3, 10, 2.5, 0, bw: true, sel: true, pic: 'pullup'),
+      _x('Tischrudern', MuscleGroup.ruecken, 8, 15, 2.5, 0, bw: true, pic: 'invrow'),
+      _x('Superman', MuscleGroup.ruecken, 12, 20, 2.5, 0, bw: true, pic: 'superman'),
       _x('Kniebeuge', MuscleGroup.beine, 5, 8, 2.5, 50, sel: true),
       _x('Beinpresse', MuscleGroup.beine, 10, 15, 5, 80, sel: true),
       _x('Rumänisches Kreuzheben', MuscleGroup.beine, 8, 10, 2.5, 40, sel: true),
       _x('Beinstrecker', MuscleGroup.beine, 10, 15, 2.5, 30),
       _x('Beinbeuger', MuscleGroup.beine, 10, 15, 2.5, 25, sel: true),
-      _x('Ausfallschritte Kurzhantel', MuscleGroup.beine, 8, 12, 2, 10),
+      _x('Ausfallschritte Kurzhantel', MuscleGroup.beine, 8, 12, 2, 10, home: true),
       _x('Hip Thrust', MuscleGroup.beine, 8, 12, 5, 60),
       _x('Wadenheben', MuscleGroup.beine, 12, 20, 5, 40, sel: true),
-      _x('Schulterdrücken', MuscleGroup.schultern, 6, 10, 2, 12, sel: true),
+      _x('Kniebeuge ohne Gewicht', MuscleGroup.beine, 15, 25, 2.5, 0, bw: true, sel: true, pic: 'airsquat'),
+      _x('Ausfallschritte', MuscleGroup.beine, 10, 16, 2.5, 0, bw: true, sel: true, pic: 'lunge'),
+      _x('Bulgarische Split Squats', MuscleGroup.beine, 8, 12, 2.5, 0, bw: true, pic: 'lunge'),
+      _x('Glute Bridge', MuscleGroup.beine, 12, 20, 2.5, 0, bw: true, sel: true, pic: 'bridge'),
+      _x('Wadenheben einbeinig', MuscleGroup.beine, 12, 20, 2.5, 0, bw: true, pic: 'calf'),
+      _x('Schulterdrücken', MuscleGroup.schultern, 6, 10, 2, 12, sel: true, home: true),
       _x('Military Press', MuscleGroup.schultern, 5, 8, 2.5, 30),
-      _x('Seitheben', MuscleGroup.schultern, 12, 15, 1, 6, sel: true),
+      _x('Seitheben', MuscleGroup.schultern, 12, 15, 1, 6, sel: true, home: true),
       _x('Face Pulls', MuscleGroup.schultern, 12, 15, 2.5, 15),
       _x('Reverse Butterfly', MuscleGroup.schultern, 12, 15, 2.5, 20),
-      _x('Bizepscurls', MuscleGroup.arme, 10, 12, 1, 10, sel: true),
-      _x('Hammercurls', MuscleGroup.arme, 10, 12, 1, 10, sel: true),
+      _x('Pike-Liegestütze', MuscleGroup.schultern, 6, 12, 2.5, 0, bw: true, pic: 'pike'),
+      _x('Bizepscurls', MuscleGroup.arme, 10, 12, 1, 10, sel: true, home: true),
+      _x('Hammercurls', MuscleGroup.arme, 10, 12, 1, 10, sel: true, home: true),
       _x('Trizepsdrücken', MuscleGroup.arme, 10, 15, 2.5, 15, sel: true),
-      _x('French Press', MuscleGroup.arme, 8, 12, 2.5, 20),
+      _x('French Press', MuscleGroup.arme, 8, 12, 2.5, 20, home: true),
+      _x('Dips am Stuhl', MuscleGroup.arme, 8, 15, 2.5, 0, bw: true, sel: true, pic: 'dips'),
+      _x('Diamant-Liegestütze', MuscleGroup.arme, 6, 15, 2.5, 0, bw: true, pic: 'pushup'),
       _x('Kabel-Crunch', MuscleGroup.rumpf, 12, 15, 2.5, 20, sel: true),
       _x('Pallof Press', MuscleGroup.rumpf, 10, 12, 2.5, 10),
       _x('Bauchmaschine', MuscleGroup.rumpf, 12, 15, 5, 25),
+      _x('Crunches', MuscleGroup.rumpf, 15, 25, 2.5, 0, bw: true, sel: true, pic: 'situp'),
+      _x('Beinheben liegend', MuscleGroup.rumpf, 10, 20, 2.5, 0, bw: true, pic: 'legraise'),
     ];

@@ -43,12 +43,14 @@ class StartView extends StatefulWidget {
 class _StartViewState extends State<StartView> {
   late String plan;
   late String day;
+  late Place place;
 
   @override
   void initState() {
     super.initState();
     final last = widget.c.sessions.lastOrNull;
     plan = last?.plan ?? 'tl';
+    place = last?.place ?? Place.studio;
     day = nextDay(widget.c.sessions, plan).id;
   }
 
@@ -62,7 +64,7 @@ class _StartViewState extends State<StartView> {
     final c = widget.c, col = AppColors.of(context);
     final p = planById(plan), due = nextDay(c.sessions, plan);
     final last = c.sessions.lastWhereOrNull((s) => s.plan == plan);
-    final order = usualOrder(c.sessions, day, only: {for (final e in c.selected) e.name});
+    final order = usualOrder(c.sessions, day, place: place, only: {for (final e in c.selected) e.name});
     Widget planCard(TrainingPlan x) =>
         ChoiceCard(title: x.name, subtitle: x.description, selected: plan == x.id, onTap: () => _pickPlan(x.id));
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
@@ -72,6 +74,15 @@ class _StartViewState extends State<StartView> {
       ]),
       const SizedBox(height: 6),
       Text('Was trainierst du heute?', style: display(context, 32)),
+      const SizedBox(height: 12),
+      SegmentedButton<Place>(
+        segments: const [
+          ButtonSegment(value: Place.studio, label: Text('Im Studio'), icon: Icon(Icons.fitness_center)),
+          ButtonSegment(value: Place.home, label: Text('Daheim'), icon: Icon(Icons.home_outlined)),
+        ],
+        selected: {place},
+        onSelectionChanged: (s) => setState(() => place = s.first),
+      ),
       const SizedBox(height: 12),
       for (final x in plans.where((x) => x.usual)) ...[planCard(x), const SizedBox(height: 8)],
       if (p.days.length > 1) ...[
@@ -95,7 +106,9 @@ class _StartViewState extends State<StartView> {
         if (order.isNotEmpty) 'Üblicher Ablauf: ${order.join(' → ')}',
       ].join('\n'))),
       const SizedBox(height: 12),
-      FilledButton(onPressed: () => c.startWorkout(day), child: Text('${dayById(day).name} starten')),
+      FilledButton(
+          onPressed: () => c.startWorkout(day, place: place),
+          child: Text('${dayById(day).name} ${place == Place.home ? 'daheim' : 'im Studio'} starten')),
       const SizedBox(height: 22),
       Text('Weitere Trainingsarten', style: TextStyle(color: col.mute, fontSize: 13, fontWeight: FontWeight.w600)),
       const SizedBox(height: 8),
@@ -117,7 +130,7 @@ class _Header extends StatelessWidget {
       Expanded(
         child: Wrap(crossAxisAlignment: WrapCrossAlignment.center, spacing: 6, children: [
           DayTag(w.day),
-          Text('· Gesamt', style: TextStyle(fontSize: 13, color: col.mute)),
+          Text('· ${w.place.label} · Gesamt', style: TextStyle(fontSize: 13, color: col.mute)),
           Text(clock(w.elapsedSec(c.now)),
               style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, fontFeatures: [FontFeature.tabularFigures()])),
           Text('· ${w.items.length} erledigt', style: TextStyle(fontSize: 13, color: col.mute)),
@@ -169,6 +182,32 @@ class _SetView extends StatelessWidget {
     if (r == 'default') c.saveMachineAsDefault();
   }
 
+  /// Gewicht von Hand eintragen: Tipp auf die Zahl.
+  Future<void> _enterWeight(BuildContext context, Exercise e, double current) async {
+    final t = TextEditingController(text: current == 0 && e.bodyweight ? '' : fmtKg(current));
+    final v = await showDialog<double>(
+      context: context,
+      builder: (ctx) {
+        void ok() => Navigator.pop(ctx, double.tryParse(t.text.trim().replaceAll(',', '.')) ?? (t.text.trim().isEmpty ? 0 : null));
+        return AlertDialog(
+          title: Text(e.bodyweight ? 'Zusatzgewicht' : 'Gewicht'),
+          content: TextField(
+            controller: t,
+            autofocus: true,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            decoration: InputDecoration(suffixText: 'kg', hintText: e.bodyweight ? '0 = ohne' : null),
+            onSubmitted: (_) => ok(),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Abbrechen')),
+            FilledButton(style: FilledButton.styleFrom(minimumSize: const Size(0, 44)), onPressed: ok, child: const Text('Übernehmen')),
+          ],
+        );
+      },
+    );
+    if (v != null) c.setWeight(v);
+  }
+
   @override
   Widget build(BuildContext context) {
     final w = c.workout!, col = AppColors.of(context), now = c.now;
@@ -178,10 +217,12 @@ class _SetView extends StatelessWidget {
     final cur = w.currentSet;
 
     final hint = last == null
-        ? 'Erstes Mal: Startgewicht ${fmtKg(w.sets.first.weight)} kg, passe es nach dem ersten Satz an.'
+        ? (e.bodyweight
+            ? 'Erstes Mal: mit Körpergewicht. Trag ein, wie viele Wiederholungen du schaffst.'
+            : 'Erstes Mal: Startgewicht ${fmtKg(w.sets.first.weight)} kg, passe es nach dem ersten Satz an.')
         : 'Letztes Mal (${dayLabel(last.date)}): ${last.log.sets.map((s) => s.reps).join(' / ')} Wdh. × '
-            '${fmtKg(last.log.topSet.weight)} kg'
-            '${w.sets.first.weight > last.log.topSet.weight ? ' · Steigerung auf ${fmtKg(w.sets.first.weight)} kg' : ''}';
+            '${weightText(e, last.log.topSet.weight)}'
+            '${w.sets.first.weight > last.log.topSet.weight ? ' · Steigerung auf ${weightText(e, w.sets.first.weight)}' : ''}';
 
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       _Header(c: c),
@@ -246,8 +287,9 @@ class _SetView extends StatelessWidget {
                 const SizedBox(width: 10),
                 Expanded(
                     child: StepField(
-                        value: fmtKg(w.sets[i].weight),
-                        unit: 'kg',
+                        value: e.bodyweight && w.sets[i].weight == 0 ? 'KG' : fmtKg(w.sets[i].weight),
+                        onTapValue: () => _enterWeight(context, e, w.sets[i].weight),
+                        unit: e.bodyweight ? (w.sets[i].weight == 0 ? 'Körpergewicht' : 'kg Zusatz') : 'kg · tippen',
                         semantics: 'Gewicht',
                         onMinus: () => c.changeWeight(-1),
                         onPlus: () => c.changeWeight(1))),
@@ -255,7 +297,7 @@ class _SetView extends StatelessWidget {
             ]),
           )
         else
-          _SetRow(i: i, s: w.sets[i]),
+          _SetRow(i: i, s: w.sets[i], e: e),
       const SizedBox(height: 10),
       if (resting)
         _RestPanel(c: c)
@@ -288,9 +330,10 @@ class _SetView extends StatelessWidget {
 }
 
 class _SetRow extends StatelessWidget {
-  const _SetRow({required this.i, required this.s});
+  const _SetRow({required this.i, required this.s, required this.e});
   final int i;
   final SetEntry s;
+  final Exercise e;
 
   @override
   Widget build(BuildContext context) {
@@ -302,7 +345,7 @@ class _SetRow extends StatelessWidget {
         decoration: BoxDecoration(border: Border(bottom: BorderSide(color: col.line))),
         child: Row(children: [
           SizedBox(width: 56, child: Text('Satz ${i + 1}', style: TextStyle(fontSize: 13, color: col.mute))),
-          Expanded(child: Text('${s.reps} × ${fmtKg(s.weight)} kg', style: display(context, 22, weight: FontWeight.w600))),
+          Expanded(child: Text(setLabel(e, s.reps, s.weight), style: display(context, 22, weight: FontWeight.w600))),
           if (s.done) ...[
             Icon(Icons.check, color: col.green, size: 18),
             const SizedBox(width: 4),
@@ -364,7 +407,7 @@ class _FeedbackView extends StatelessWidget {
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       _Header(c: c),
       const SizedBox(height: 10),
-      Text('${w.exercise} · ${done.map((s) => s.reps).join(' / ')} Wdh. bei ${fmtKg(done.first.weight)} kg',
+      Text('${w.exercise} · ${done.map((s) => s.reps).join(' / ')} Wdh. · ${weightText(c.tryExercise(w.exercise!), done.first.weight)}',
           style: TextStyle(fontSize: 13, color: col.mute)),
       const SizedBox(height: 6),
       Text('Wie hat es sich angefühlt?', style: display(context, 28)),
@@ -409,7 +452,7 @@ class _RecommendView extends StatelessWidget {
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(color: col.soft, borderRadius: BorderRadius.circular(16)),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text('${fmtKg(w.recommendation!)} kg', style: display(context, 56, color: AppColors.red)),
+          Text(weightText(c.tryExercise(w.exercise!), w.recommendation!), style: display(context, 48, color: AppColors.red)),
           const SizedBox(height: 6),
           Text(w.recommendationReason ?? ''),
         ]),
@@ -417,7 +460,10 @@ class _RecommendView extends StatelessWidget {
       const SizedBox(height: 14),
       FilledButton(onPressed: () => c.finishExercise(accept: true), child: const Text('Übernehmen')),
       const SizedBox(height: 10),
-      OutlinedButton(onPressed: () => c.finishExercise(accept: false), child: Text('Lieber ${fmtKg(keep)} kg lassen')),
+      if (keep != w.recommendation)
+        OutlinedButton(
+            onPressed: () => c.finishExercise(accept: false),
+            child: Text('Lieber ${weightText(c.tryExercise(w.exercise!), keep)} lassen')),
     ]);
   }
 }
@@ -433,7 +479,9 @@ class _NextView extends StatelessWidget {
   Widget build(BuildContext context) {
     final w = c.workout!, col = AppColors.of(context);
     final sg = c.suggestions();
-    final rest = c.selected.where((e) => !w.done.contains(e.name) && !sg.any((s) => s.exercise == e.name)).toList();
+    final rest = c.selected
+        .where((e) => e.availableAt(w.place) && !w.done.contains(e.name) && !sg.any((s) => s.exercise == e.name))
+        .toList();
     final fit = rest.where((e) => fitsDay(c.sessions, e, w.day)).toList();
     final other = rest.where((e) => !fitsDay(c.sessions, e, w.day)).toList();
     Widget chips(List<Exercise> l) => Wrap(spacing: 6, runSpacing: 6, children: [
@@ -512,7 +560,7 @@ class _SummaryView extends StatelessWidget {
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       Row(children: [
         Flexible(child: Text('Zusammenfassung · ', overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 13, color: col.mute))),
-        DayTag(w.day),
+        DayTag(w.day, suffix: ' · ${w.place.label}'),
         const Spacer(),
         UndoButton(c),
       ]),
@@ -543,7 +591,7 @@ class _SummaryView extends StatelessWidget {
             style: TextStyle(fontSize: 13, color: col.mute)),
       ],
       const SizedBox(height: 8),
-      for (final r in m.rows) _CompareRow(r: r),
+      for (final r in m.rows) _CompareRow(r: r, e: c.tryExercise(r.log.exercise)),
       const SizedBox(height: 12),
       Hint(Text('Garmin: Mit der Uhren-App wird dieses Training als Aktivität „$dn“ an Garmin Connect '
           'und weiter an Strava übertragen. Die Uhren-App folgt im nächsten Schritt.')),
@@ -554,8 +602,9 @@ class _SummaryView extends StatelessWidget {
 }
 
 class _CompareRow extends StatelessWidget {
-  const _CompareRow({required this.r});
+  const _CompareRow({required this.r, required this.e});
   final ExerciseComparison r;
+  final Exercise? e;
 
   @override
   Widget build(BuildContext context) {
@@ -574,7 +623,7 @@ class _CompareRow extends StatelessWidget {
         Expanded(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text(r.log.exercise, style: const TextStyle(fontWeight: FontWeight.w500)),
-            Text('${t.reps} × ${fmtKg(t.weight)} kg${p == null ? '' : ', zuletzt ${p.reps} × ${fmtKg(p.weight)} kg'}',
+            Text('${setLabel(e, t.reps, t.weight)}${p == null ? '' : ', zuletzt ${setLabel(e, p.reps, p.weight)}'}',
                 style: TextStyle(fontSize: 12, color: col.mute)),
           ]),
         ),

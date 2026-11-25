@@ -78,6 +78,15 @@ final Map<String, List<_Op>> _pictograms = {
     _l(24, 13, 29, 22), _l(24, 25, 21, 33), _l(21, 33, 28, 38)],
   'face': [_l(42, 8, 42, 18, _eq), _l(42, 12, 32, 12, _eq), _hd(19, 8), _l(19, 12, 19, 28), ..._legs(19, 28), _l(19, 14, 26, 9), _l(26, 9, 32, 12)],
   'pallof': [_l(42, 11, 42, 23, _eq), _l(42, 17, 33, 17, _eq), _hd(19, 8), _l(19, 12, 19, 28), ..._legs(19, 28), _l(19, 15, 33, 17)],
+  'pushup': [_l(4, 40, 44, 40, _eq), _hd(10, 22), _l(13, 24, 38, 34), _l(38, 34, 41, 39), _l(15, 25, 15, 39)],
+  'pike': [_l(4, 40, 44, 40, _eq), _l(16, 26, 28, 12), _l(28, 12, 40, 39), _l(16, 26, 13, 39), _hd(20, 30)],
+  'invrow': [_l(8, 14, 36, 14, _eq), _l(10, 14, 10, 42, _eq), _l(34, 14, 34, 42, _eq), _l(4, 42, 44, 42, _eq), _hd(16, 24),
+    _l(19, 25, 40, 36), _l(40, 36, 42, 41), _l(20, 25, 22, 15)],
+  'superman': [_l(4, 40, 44, 40, _eq), _hd(10, 29), _l(13, 32, 32, 35), _l(12, 30, 4, 25), _l(32, 35, 43, 29)],
+  'airsquat': [_l(14, 41, 38, 41, _eq), _hd(24, 8), _l(24, 12, 20, 25), _l(20, 25, 31, 27), _l(31, 27, 29, 40), _l(23, 15, 35, 16)],
+  'bridge': [_l(4, 40, 44, 40, _eq), _hd(8, 35), _l(11, 36, 24, 26), _l(24, 26, 32, 30), _l(32, 30, 34, 39), _l(12, 37, 20, 39)],
+  'situp': [_l(4, 40, 44, 40, _eq), _q(24, 38, 18, 34, 14, 28), _hd(12, 24), _l(24, 38, 32, 30), _l(32, 30, 38, 39), _l(15, 28, 19, 23)],
+  'legraise': [_l(4, 40, 44, 40, _eq), _hd(8, 35), _l(11, 37, 26, 37), _l(26, 37, 34, 14), _l(12, 38, 20, 39)],
   'seatrow': [_l(6, 35, 22, 35, _eq), _l(40, 28, 40, 42, _eq), _l(30, 22, 42, 23, _eq), _hd(15, 13), _l(15, 17, 16, 34), _l(16, 34, 28, 32),
     _l(28, 32, 38, 38), _l(15, 20, 22, 25), _l(22, 25, 30, 22)],
 };
@@ -87,7 +96,9 @@ const pictogramNames = {
   'pullup': 'Klimmzug', 'press': 'Drücken über Kopf', 'curl': 'Curl', 'push': 'Trizeps am Kabel', 'legpress': 'Beinpresse',
   'legext': 'Beinstrecker', 'legcurl': 'Beinbeuger', 'lunge': 'Ausfallschritt', 'calf': 'Wadenheben', 'lateral': 'Seitheben',
   'fly': 'Butterfly', 'crunch': 'Crunch', 'hip': 'Hip Thrust', 'dips': 'Dips', 'face': 'Face Pull', 'pallof': 'Pallof',
-  'seatrow': 'Rudern sitzend',
+  'seatrow': 'Rudern sitzend', 'pushup': 'Liegestütz', 'pike': 'Pike-Liegestütz', 'invrow': 'Tischrudern',
+  'superman': 'Superman', 'airsquat': 'Kniebeuge ohne Gewicht', 'bridge': 'Glute Bridge', 'situp': 'Crunch am Boden',
+  'legraise': 'Beinheben',
 };
 
 const _byName = {

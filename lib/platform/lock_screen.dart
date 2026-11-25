@@ -75,21 +75,22 @@ LockContent? lockContent(AppController c) {
   final w = c.workout;
   if (w == null) return null;
   final now = c.now, day = dayById(w.day).name;
+  final dayLabelText = '$day · ${w.place.label}';
   LockContent simple(String title, String text, List<List<LockAction>> rows, {LockAction? wide}) => LockContent(
-      title: title, text: text, dayName: day, start: w.startedAt, rows: rows, wide: wide, sound: c.settings.restSound);
+      title: title, text: text, dayName: dayLabelText, start: w.startedAt, rows: rows, wide: wide, sound: c.settings.restSound);
 
   switch (w.phase) {
     case Phase.set:
       final s = w.currentSet!;
       final e = c.exercise(w.exercise!);
       final step = fmtKg(e.step);
-      final setText = '${s.reps} × ${fmtKg(s.weight)} kg${w.machine.isEmpty ? '' : ' · Gerät ${w.machine}'}';
+      final setText = '${setLabel(e, s.reps, s.weight)}${w.machine.isEmpty ? '' : ' · Gerät ${w.machine}'}';
       final n = w.current + 1;
       if (w.resting(now)) {
         return LockContent(
           title: 'Pause · danach Satz $n',
           text: '${w.exercise}: $setText',
-          dayName: day,
+          dayName: dayLabelText,
           start: w.startedAt,
           status: LockStatus.resting,
           restStart: w.restEndsAt!.subtract(Duration(seconds: w.restSec)),
@@ -106,7 +107,7 @@ LockContent? lockContent(AppController c) {
       return LockContent(
         title: '${w.exercise} · Satz $n',
         text: setText,
-        dayName: day,
+        dayName: dayLabelText,
         start: w.startedAt,
         status: LockStatus.setRunning,
         setStart: setStart,
@@ -119,7 +120,8 @@ LockContent? lockContent(AppController c) {
       );
     case Phase.feedback:
       final done = w.sets.where((s) => s.done);
-      return simple('${w.exercise}: Wie war\'s?', '${done.map((s) => s.reps).join(' / ')} Wdh. bei ${fmtKg(done.first.weight)} kg', [
+      return simple('${w.exercise}: Wie war\'s?',
+          '${done.map((s) => s.reps).join(' / ')} Wdh. · ${weightText(c.tryExercise(w.exercise!), done.first.weight)}', [
         [for (final r in Rating.values) LockAction('rate:${r.name}', r.label, primary: r == Rating.passend)],
       ], wide: _undo);
     case Phase.recommend:
@@ -128,7 +130,7 @@ LockContent? lockContent(AppController c) {
       return simple('Nächstes Mal ${w.exercise}', w.recommendationReason ?? '', [
         [
           if (rec != keep) LockAction('keep', '${fmtKg(keep)} kg lassen'),
-          LockAction('accept', '${fmtKg(rec)} kg ok', primary: true),
+          LockAction('accept', rec == keep ? 'Ok' : '${fmtKg(rec)} kg ok', primary: true),
         ],
       ], wide: _undo);
     case Phase.next:
