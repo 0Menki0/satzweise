@@ -79,16 +79,16 @@ class MainView extends WatchUi.View {
         var step = kg(set["step"] as Float);
         if ("resting".equals(s["status"])) {
             return [
-                [{"id" => "restMinus", "label" => "−15 s"}, {"id" => "restPlus", "label" => "+15 s"}, {"id" => "skip", "label" => "Weiter", "p" => true}],
-                [{"id" => "repsMinus", "label" => "− Wdh."}, {"id" => "repsPlus", "label" => "+ Wdh."}, {"id" => "end", "label" => "Ende"}]
+                [{"id" => "restMinus", "label" => "-15 s"}, {"id" => "restPlus", "label" => "+15 s"}, {"id" => "skip", "label" => "Weiter", "p" => true}],
+                [{"id" => "repsMinus", "label" => "- Wdh."}, {"id" => "repsPlus", "label" => "+ Wdh."}, {"id" => "end", "label" => "Ende"}]
             ];
         }
-        var row2 = [{"id" => "weightMinus", "label" => "−" + step}, {"id" => "weightPlus", "label" => "+" + step}];
+        var row2 = [{"id" => "weightMinus", "label" => "-" + step}, {"id" => "weightPlus", "label" => "+" + step}];
         if ((set["doneCount"] as Number) > 0) {
             row2.add({"id" => "end", "label" => "Ende"});
         }
         return [
-            [{"id" => "repsMinus", "label" => "− Wdh."}, {"id" => "repsPlus", "label" => "+ Wdh."}, {"id" => "done", "label" => "Fertig", "p" => true}],
+            [{"id" => "repsMinus", "label" => "- Wdh."}, {"id" => "repsPlus", "label" => "+ Wdh."}, {"id" => "done", "label" => "Fertig", "p" => true}],
             row2
         ];
     }
@@ -121,9 +121,9 @@ class MainView extends WatchUi.View {
         dc.setColor(MUTE, Graphics.COLOR_TRANSPARENT);
         dc.drawText(cx, 36, Graphics.FONT_XTINY, head, Graphics.TEXT_JUSTIFY_CENTER);
         var hr = _app.heartRate();
-        var line2 = (hr != null ? "♥ " + hr.format("%d") : "");
+        var line2 = (hr != null ? "Puls " + hr.format("%d") : "");
         if (_app.queue.size() > 0 && !_app.connected) {
-            line2 = line2 + (line2.length() > 0 ? " · " : "") + "offline (" + _app.queue.size().format("%d") + ")";
+            line2 = line2 + (line2.length() > 0 ? " · " : "") + "offline, " + _app.queue.size().format("%d") + " offen";
         }
         if (line2.length() > 0) {
             dc.setColor(RED, Graphics.COLOR_TRANSPARENT);
@@ -138,15 +138,15 @@ class MainView extends WatchUi.View {
             rows = localRows(s);
             wide = null;
             dc.setColor(Graphics.COLOR_WHITE, Graphics.COLOR_TRANSPARENT);
-            dc.drawText(cx, 104, Graphics.FONT_SMALL, set["ex"] as String, Graphics.TEXT_JUSTIFY_CENTER | Graphics.TEXT_JUSTIFY_VCENTER);
+            dc.drawText(cx, 112, Graphics.FONT_SMALL, set["ex"] as String, Graphics.TEXT_JUSTIFY_CENTER | Graphics.TEXT_JUSTIFY_VCENTER);
             var info = "Satz " + (set["no"] as Number).format("%d");
             if (s["setStartS"] != null) {
                 info = info + " · " + clock(now - (s["setStartS"] as Number));
             }
             dc.setColor(now - _app.restFinishedAt < 5 ? GREEN : MUTE, Graphics.COLOR_TRANSPARENT);
-            dc.drawText(cx, 138, Graphics.FONT_XTINY, now - _app.restFinishedAt < 5 ? "Pause vorbei · los!" : info, Graphics.TEXT_JUSTIFY_CENTER | Graphics.TEXT_JUSTIFY_VCENTER);
+            dc.drawText(cx, 148, Graphics.FONT_XTINY, now - _app.restFinishedAt < 5 ? "Pause vorbei · los!" : info, Graphics.TEXT_JUSTIFY_CENTER | Graphics.TEXT_JUSTIFY_VCENTER);
             dc.setColor(0xFF6A62, Graphics.COLOR_TRANSPARENT);
-            dc.drawText(cx, 190, Graphics.FONT_LARGE, setText(set), Graphics.TEXT_JUSTIFY_CENTER | Graphics.TEXT_JUSTIFY_VCENTER);
+            dc.drawText(cx, 198, Graphics.FONT_LARGE, setText(set), Graphics.TEXT_JUSTIFY_CENTER | Graphics.TEXT_JUSTIFY_VCENTER);
         } else if (set != null && "resting".equals(status)) {
             rows = localRows(s);
             wide = null;
@@ -167,7 +167,7 @@ class MainView extends WatchUi.View {
                 dc.setPenWidth(1);
             }
             dc.setColor(MUTE, Graphics.COLOR_TRANSPARENT);
-            dc.drawText(cx, 104, Graphics.FONT_XTINY, "Pause · danach Satz " + (set["no"] as Number).format("%d"), Graphics.TEXT_JUSTIFY_CENTER | Graphics.TEXT_JUSTIFY_VCENTER);
+            dc.drawText(cx, 108, Graphics.FONT_XTINY, "Pause · danach Satz " + (set["no"] as Number).format("%d"), Graphics.TEXT_JUSTIFY_CENTER | Graphics.TEXT_JUSTIFY_VCENTER);
             dc.setColor(BLUE, Graphics.COLOR_TRANSPARENT);
             dc.drawText(cx, 165, Graphics.FONT_NUMBER_HOT, clock(left), Graphics.TEXT_JUSTIFY_CENTER | Graphics.TEXT_JUSTIFY_VCENTER);
             dc.setColor(Graphics.COLOR_WHITE, Graphics.COLOR_TRANSPARENT);
@@ -178,10 +178,6 @@ class MainView extends WatchUi.View {
             if (s["text"] != null) {
                 dc.setColor(MUTE, Graphics.COLOR_TRANSPARENT);
                 dc.drawText(cx, 165, Graphics.FONT_XTINY, s["text"] as String, Graphics.TEXT_JUSTIFY_CENTER | Graphics.TEXT_JUSTIFY_VCENTER);
-            }
-            if (_app.queue.size() > 0 && !_app.connected) {
-                dc.setColor(RED, Graphics.COLOR_TRANSPARENT);
-                dc.drawText(cx, 205, Graphics.FONT_XTINY, "wird übernommen, sobald\ndas Handy erreichbar ist", Graphics.TEXT_JUSTIFY_CENTER | Graphics.TEXT_JUSTIFY_VCENTER);
             }
         }
 

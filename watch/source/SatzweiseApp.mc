@@ -51,7 +51,15 @@ class SatzweiseApp extends Application.AppBase {
         demo();
         _timer = new Timer.Timer();
         _timer.start(method(:tick), 1000, true);
-        transmit("hello");
+        hello();
+    }
+
+    // Begrüßung ans Handy: bittet um den aktuellen Stand. Läuft nicht über
+    // die Warteschlange, damit sie nicht als offener Knopfdruck zählt.
+    function hello() as Void {
+        if (!demoMode) {
+            Communications.transmit({"a" => "hello", "ts" => now()}, null, new HelloListener(self));
+        }
     }
 
     // Nur im Testbuild (ohne -r): Beispieltraining für den Simulator.
@@ -269,6 +277,23 @@ class SatzweiseApp extends Application.AppBase {
     function heartRate() as Number? {
         var info = Activity.getActivityInfo();
         return info != null ? info.currentHeartRate : null;
+    }
+}
+
+class HelloListener extends Communications.ConnectionListener {
+    private var _app as SatzweiseApp;
+
+    function initialize(app as SatzweiseApp) {
+        ConnectionListener.initialize();
+        _app = app;
+    }
+
+    function onComplete() as Void {
+        _app.connected = true;
+    }
+
+    function onError() as Void {
+        _app.connected = false;
     }
 }
 

@@ -4,12 +4,16 @@ import Toybox.WatchUi;
 // Bedienung: Antippen der Knöpfe, obere Taste (START) = Hauptaktion,
 // untere Taste (ZURÜCK) = letzten Schritt zurücknehmen. Ohne laufendes
 // Training beendet ZURÜCK die App wie gewohnt.
-class MainDelegate extends WatchUi.BehaviorDelegate {
+//
+// Bewusst ein InputDelegate und kein BehaviorDelegate: Dieser macht aus
+// jedem Antippen ein „Select“ ohne Position, dann löst jeder Tipp die
+// Hauptaktion aus.
+class MainDelegate extends WatchUi.InputDelegate {
     private var _app as SatzweiseApp;
     private var _view as MainView;
 
     function initialize(app as SatzweiseApp, view as MainView) {
-        BehaviorDelegate.initialize();
+        InputDelegate.initialize();
         _app = app;
         _view = view;
     }
@@ -20,24 +24,26 @@ class MainDelegate extends WatchUi.BehaviorDelegate {
         if (id != null) {
             _app.act(id);
         }
-        // Immer behandelt, damit ein Tipp daneben nicht als START zählt.
         return true;
     }
 
-    function onSelect() as Boolean {
-        var id = _view.primary;
-        if (id != null) {
-            _app.act(id);
+    function onKey(evt as WatchUi.KeyEvent) as Boolean {
+        var key = evt.getKey();
+        if (key == WatchUi.KEY_ENTER) {
+            var id = _view.primary;
+            if (id != null) {
+                _app.act(id);
+            }
+            return true;
         }
-        return true;
-    }
-
-    function onBack() as Boolean {
-        var s = _app.state;
-        if (s == null || s["idle"] == true) {
-            return false;
+        if (key == WatchUi.KEY_ESC) {
+            var s = _app.state;
+            if (s == null || s["idle"] == true) {
+                return false;
+            }
+            _app.act("undo");
+            return true;
         }
-        _app.act("undo");
-        return true;
+        return false;
     }
 }

@@ -10,7 +10,10 @@ import 'lock_screen.dart';
 
 int _s(DateTime? d) => d == null ? 0 : d.millisecondsSinceEpoch ~/ 1000;
 
-Map<String, Object> _btn(LockAction a) => {'id': a.id, 'label': a.label, if (a.primary) 'p': true};
+/// Garmins Uhrenschrift kennt weder das Minuszeichen noch den Pfeil.
+String _watchLabel(String s) => s.replaceAll('−', '-').replaceAll('↶ ', '');
+
+Map<String, Object> _btn(LockAction a) => {'id': a.id, 'label': _watchLabel(a.label), if (a.primary) 'p': true};
 
 /// Was die Garmin-Uhr zeigt. Zeiten in Sekunden seit 1970; die Uhr zählt
 /// Gesamtzeit, Satzzeit und Pause selbst. Für Satz und Pause bekommt sie die
@@ -43,8 +46,8 @@ Map<String, Object?> watchContent(AppController c) {
   final e = w.exercise == null ? null : c.tryExercise(w.exercise!);
   return {
     'idle': false,
-    'title': l.title,
-    'text': l.text,
+    'title': _watchLabel(l.title),
+    'text': _watchLabel(l.text),
     'day': l.dayName,
     'status': l.status.name,
     'startS': _s(w.startedAt),
