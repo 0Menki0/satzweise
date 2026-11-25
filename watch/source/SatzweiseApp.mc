@@ -237,7 +237,9 @@ class SatzweiseApp extends Application.AppBase {
                 Attention.playTone(Attention.TONE_ALARM);
             }
         }
-        if (queue.size() > 0 && !sending) {
+        // Ohne Verbindung nur alle 5 s neu versuchen, sonst bremst sich die
+        // Uhr mit ständigen Sendeversuchen selbst aus.
+        if (queue.size() > 0 && !sending && (connected || now() % 5 == 0)) {
             flush();
         }
         WatchUi.requestUpdate();
