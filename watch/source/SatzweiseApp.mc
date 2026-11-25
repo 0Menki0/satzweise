@@ -14,8 +14,11 @@ import Toybox.Application;
 import Toybox.Application.Storage;
 import Toybox.Attention;
 import Toybox.Communications;
+import Toybox.FitContributor;
 import Toybox.Lang;
+import Toybox.Position;
 import Toybox.Sensor;
+import Toybox.System;
 import Toybox.Time;
 import Toybox.Timer;
 import Toybox.WatchUi;
@@ -31,6 +34,10 @@ class SatzweiseApp extends Application.AppBase {
     var connected as Boolean = false;
     var session as ActivityRecording.Session? = null;
     var restFinishedAt as Number = 0;
+    // Zusatzdaten je Runde in der Aufzeichnung: Übung, Wiederholungen, Gewicht.
+    private var _fExercise as FitContributor.Field? = null;
+    private var _fReps as FitContributor.Field? = null;
+    private var _fWeight as FitContributor.Field? = null;
     // Testbuild mit Beispieldaten: nichts ans Handy senden.
     var demoMode as Boolean = false;
     private var _timer as Timer.Timer? = null;
@@ -45,6 +52,7 @@ class SatzweiseApp extends Application.AppBase {
             state = cached;
         }
         Sensor.setEnabledSensors([Sensor.SENSOR_HEARTRATE] as Array<Sensor.SensorType>);
+        gpsOff();
         if (Communications has :registerForPhoneAppMessages) {
             Communications.registerForPhoneAppMessages(method(:onPhone));
         }
@@ -73,11 +81,16 @@ class SatzweiseApp extends Application.AppBase {
         var mode = DEMO_MODE;
         state = {
             "idle" => false, "title" => "Kniebeuge · Satz 2", "text" => "8 × 85 kg · Gerät 12", "day" => "Limbs · Studio",
-            "status" => mode, "startS" => t - 1452, "setStartS" => t - 34,
+            "status" => "record".equals(mode) ? "setRunning" : mode, "startS" => t - 1452, "setStartS" => t - 34,
             "restStartS" => t - 18, "restEndS" => t + 72, "sound" => false,
             "rows" => [], "wide" => null,
             "set" => {"ex" => "Kniebeuge", "no" => 2, "reps" => 8, "w" => 85.0, "step" => 2.5, "bw" => false, "rest" => 90, "doneCount" => 1}
         };
+        if ("record".equals(mode)) {
+            // Testaufzeichnung: nach 25 s speichern, um die FIT-Datei zu prüfen.
+            startRecording();
+            new Timer.Timer().start(method(:demoSave), 25000, false);
+        }
         if ("feedback".equals(mode)) {
             state = {
                 "idle" => false, "title" => "Kniebeuge: Wie war's?", "text" => "8 / 8 / 7 Wdh. · 85 kg", "day" => "Limbs · Studio",
@@ -96,6 +109,12 @@ class SatzweiseApp extends Application.AppBase {
 
     (:release)
     function demo() as Void {
+    }
+
+    (:debug)
+    function demoSave() as Void {
+        endRecording(true);
+        System.println("gespeichert");
     }
 
     function onStop(params as Dictionary?) as Void {
@@ -201,15 +220,14 @@ class SatzweiseApp extends Application.AppBase {
         } else if (id.equals("weightPlus")) {
             set["w"] = (set["w"] as Float) + (set["step"] as Float);
         } else if (id.equals("done") && "setRunning".equals(status)) {
-            if (session != null) {
-                session.addLap();
-            }
+            setLap(set);
             s["status"] = "resting";
             s["restStartS"] = t;
             s["restEndS"] = t + (set["rest"] as Number);
             set["no"] = (set["no"] as Number) + 1;
             set["doneCount"] = (set["doneCount"] as Number) + 1;
         } else if (id.equals("skip") && "resting".equals(status)) {
+            restLap();
             s["status"] = "setRunning";
             s["restEndS"] = t;
             s["setStartS"] = t;
@@ -226,6 +244,7 @@ class SatzweiseApp extends Application.AppBase {
         var s = state;
         if (s != null && "resting".equals(s["status"]) && now() >= (s["restEndS"] as Number)) {
             // Pause vorbei: Uhr vibriert, auf Wunsch mit Ton.
+            restLap();
             s["status"] = "setRunning";
             s["setStartS"] = s["restEndS"];
             restFinishedAt = now();
@@ -247,6 +266,41 @@ class SatzweiseApp extends Application.AppBase {
 
     // ------------------------------------------------------------ Aufzeichnung
 
+    // Krafttraining braucht keine Strecke: GPS aus, damit Garmin Connect
+    // keine Karte zeigt und der Akku geschont wird.
+    function gpsOff() as Void {
+        if (Toybox has :Position && Position has :enableLocationEvents) {
+            Position.enableLocationEvents(Position.LOCATION_DISABLE, null);
+        }
+    }
+
+    // Satz abgeschlossen: eigene Runde mit Übung, Wiederholungen und Gewicht.
+    function setLap(set as Dictionary) as Void {
+        if (session == null) {
+            return;
+        }
+        if (_fExercise != null) {
+            var ex = set["ex"] as String;
+            _fExercise.setData(ex.length() > 31 ? ex.substring(0, 31) : ex);
+            _fReps.setData(set["reps"] as Number);
+            _fWeight.setData((set["w"] as Float).toFloat());
+        }
+        session.addLap();
+        if (_fExercise != null) {
+            _fExercise.setData("Pause");
+            _fReps.setData(0);
+            _fWeight.setData(0.0);
+        }
+    }
+
+    // Pause vorbei: auch die Pause ist eine eigene Runde, wie bei Garmins
+    // eingebautem Krafttraining.
+    function restLap() as Void {
+        if (session != null) {
+            session.addLap();
+        }
+    }
+
     function startRecording() as Void {
         if (session != null || !(Toybox has :ActivityRecording)) {
             return;
@@ -258,6 +312,18 @@ class SatzweiseApp extends Application.AppBase {
             :sport => Activity.SPORT_TRAINING,
             :subSport => Activity.SUB_SPORT_STRENGTH_TRAINING
         });
+        gpsOff();
+        if (session has :createField) {
+            _fExercise = session.createField("Uebung", 0, FitContributor.DATA_TYPE_STRING,
+                {:mesgType => FitContributor.MESG_TYPE_LAP, :count => 32});
+            _fReps = session.createField("Wiederholungen", 1, FitContributor.DATA_TYPE_UINT16,
+                {:mesgType => FitContributor.MESG_TYPE_LAP, :units => "Wdh."});
+            _fWeight = session.createField("Gewicht", 2, FitContributor.DATA_TYPE_FLOAT,
+                {:mesgType => FitContributor.MESG_TYPE_LAP, :units => "kg"});
+            _fExercise.setData("Pause");
+            _fReps.setData(0);
+            _fWeight.setData(0.0);
+        }
         session.start();
     }
 

@@ -1,3 +1,9 @@
 <strings>
     <string id="AppName">Satzweise</string>
+    <string id="FitExercise">Übung</string>
+    <string id="FitNone"> </string>
+    <string id="FitReps">Wiederholungen</string>
+    <string id="FitRepsUnit">Wdh.</string>
+    <string id="FitWeight">Gewicht</string>
+    <string id="FitWeightUnit">kg</string>
 </strings>
