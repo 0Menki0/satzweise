@@ -383,6 +383,11 @@ class _FeedbackView extends StatelessWidget {
         ),
         const SizedBox(height: 10),
       ],
+      Text(
+          'Leicht steigert schneller, auch wenn noch nicht alle Sätze oben im Bereich sind. '
+          'Passend steigert erst, wenn alle Sätze ${c.exercise(w.exercise!).repMax} Wdh. erreichen. '
+          'Schwer hält das Gewicht oder senkt es.',
+          style: TextStyle(fontSize: 13, color: col.mute)),
     ]);
   }
 }

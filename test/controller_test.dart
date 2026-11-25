@@ -60,9 +60,9 @@ void main() {
     c.completeSet();
     expect(w.phase, Phase.feedback);
 
-    c.rate(Rating.passend);
+    c.rate(Rating.leicht);
     expect(w.phase, Phase.recommend);
-    expect(w.recommendation, 52.5, reason: 'alle Sätze bei 8 Wdh.: +2,5 kg');
+    expect(w.recommendation, 52.5, reason: 'im Zielbereich und leicht: +2,5 kg');
     c.finishExercise(accept: true);
     expect(c.exercise('Kniebeuge').nextWeight, 52.5);
     expect(w.phase, Phase.next);
@@ -80,11 +80,12 @@ void main() {
   test('Zurück nimmt Schritte nacheinander zurück, auch das Speichern', () {
     c.startWorkout('torso');
     c.pickExercise('Bankdrücken');
+    final before = c.workout!.sets.first.reps;
     c.changeReps(1);
-    expect(c.workout!.sets.first.reps, 9);
+    expect(c.workout!.sets.first.reps, before + 1);
     expect(c.undoLabel, 'Wiederholung +1');
     c.undo();
-    expect(c.workout!.sets.first.reps, 8);
+    expect(c.workout!.sets.first.reps, before);
 
     c.completeSet();
     c.completeSet();
@@ -169,5 +170,35 @@ void main() {
     expect(w.current, 1);
     expect(w.restRemaining(c.now), 60);
     expect(w.elapsedSec(c.now), 30);
+  });
+
+  test('Training löschen setzt die Gewichtsvorgabe zurück', () {
+    void train(Rating r) {
+      c.startWorkout('torso');
+      c.pickExercise('Bankdrücken');
+      c.completeSet();
+      c.completeSet();
+      c.completeSet();
+      c.rate(r);
+      c.finishExercise(accept: true);
+      c.finishWorkout();
+      pass(60);
+      c.saveWorkout();
+      pass(3600);
+    }
+
+    train(Rating.passend);
+    expect(c.exercise('Bankdrücken').nextWeight, 40);
+    train(Rating.leicht);
+    expect(c.exercise('Bankdrücken').nextWeight, 42.5);
+    expect(c.sessions, hasLength(2));
+
+    c.deleteSession(c.sessions.last.id);
+    expect(c.sessions, hasLength(1));
+    expect(c.exercise('Bankdrücken').nextWeight, 40, reason: 'Vorgabe aus dem verbliebenen Training');
+    c.deleteSession(c.sessions.single.id);
+    expect(c.exercise('Bankdrücken').nextWeight, isNull);
+
+    expect(c.canUndo, isFalse, reason: 'Zurück springt nicht in gelöschte Trainings');
   });
 }

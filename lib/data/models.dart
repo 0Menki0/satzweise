@@ -142,6 +142,7 @@ class ExerciseLog {
     this.machine = '',
     this.note = '',
     this.rating,
+    this.nextWeight,
   });
 
   final String exercise;
@@ -149,6 +150,9 @@ class ExerciseLog {
   String machine;
   String note;
   Rating? rating;
+
+  /// Gewicht, das nach diesem Training fürs nächste Mal festgelegt wurde.
+  double? nextWeight;
 
   double get volume => sets.fold(0, (a, s) => a + s.volume);
 
@@ -160,7 +164,8 @@ class ExerciseLog {
       sets: sets.map((s) => s.copy()).toList(),
       machine: machine,
       note: note,
-      rating: rating);
+      rating: rating,
+      nextWeight: nextWeight);
 
   Map<String, dynamic> toJson() => {
         'exercise': exercise,
@@ -168,6 +173,7 @@ class ExerciseLog {
         'machine': machine,
         'note': note,
         if (rating != null) 'rating': rating!.name,
+        if (nextWeight != null) 'nextWeight': nextWeight,
       };
 
   factory ExerciseLog.fromJson(Map<String, dynamic> j) => ExerciseLog(
@@ -176,6 +182,7 @@ class ExerciseLog {
         machine: j['machine'] as String? ?? '',
         note: j['note'] as String? ?? '',
         rating: j['rating'] == null ? null : Rating.values.byName(j['rating'] as String),
+        nextWeight: (j['nextWeight'] as num?)?.toDouble(),
       );
 }
 

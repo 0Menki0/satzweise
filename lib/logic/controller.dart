@@ -12,11 +12,11 @@ import 'coach.dart';
 import 'workout.dart';
 
 class _Snapshot {
-  _Snapshot(this.label, this.workout, this.nextWeights, this.sessionCount);
+  _Snapshot(this.label, this.workout, this.nextWeights, this.sessionIds);
   final String label;
   final String? workout;
   final Map<String, double?> nextWeights;
-  final int sessionCount;
+  final Set<String> sessionIds;
 }
 
 /// Zentrale Steuerung: hält alle Daten, führt jede Aktion des Trainings aus,
@@ -142,7 +142,7 @@ class AppController extends ChangeNotifier {
       label,
       workout == null ? null : jsonEncode(workout!.toJson()),
       {for (final e in exercises) e.name: e.nextWeight},
-      sessions.length,
+      {for (final x in sessions) x.id},
     ));
     if (_undo.length > 60) _undo.removeAt(0);
   }
@@ -154,7 +154,7 @@ class AppController extends ChangeNotifier {
     for (final e in exercises) {
       if (s.nextWeights.containsKey(e.name)) e.nextWeight = s.nextWeights[e.name];
     }
-    if (sessions.length > s.sessionCount) sessions.removeRange(s.sessionCount, sessions.length);
+    sessions.removeWhere((x) => !s.sessionIds.contains(x.id));
     _wasResting = workout?.resting(now) ?? false;
     _changed();
   }
@@ -312,7 +312,8 @@ class AppController extends ChangeNotifier {
     final done = w.sets.where((s) => s.done).map((s) => s.copy()).toList();
     final log = ExerciseLog(exercise: w.exercise!, sets: done, machine: w.machine, note: w.note, rating: w.rating);
     _snap(accept ? 'Gewicht übernommen' : 'Gewicht gelassen');
-    exercise(w.exercise!).nextWeight = accept ? w.recommendation : log.topSet.weight;
+    log.nextWeight = accept ? w.recommendation : log.topSet.weight;
+    exercise(w.exercise!).nextWeight = log.nextWeight;
     w
       ..items.add(log)
       ..phase = Phase.next;
@@ -342,6 +343,24 @@ class AppController extends ChangeNotifier {
       items: w.items.map((i) => i.copy()).toList(),
     ));
     workout = null;
+    _changed();
+  }
+
+  /// Löscht ein gespeichertes Training. Die Gewichtsvorgabe fürs nächste Mal
+  /// richtet sich danach wieder nach dem letzten verbliebenen Training.
+  void deleteSession(String id) {
+    final gone = sessions.where((s) => s.id == id).firstOrNull;
+    if (gone == null) return;
+    sessions.remove(gone);
+    // Zurück würde sonst in ein Training springen, das es nicht mehr gibt.
+    _undo.clear();
+    final active = workout?.items ?? const <ExerciseLog>[];
+    for (final it in gone.items) {
+      final e = tryExercise(it.exercise);
+      if (e == null) continue;
+      final inActive = active.where((a) => a.exercise == e.name).lastOrNull;
+      e.nextWeight = inActive?.nextWeight ?? lastLog(sessions, e.name)?.log.nextWeight;
+    }
     _changed();
   }
 

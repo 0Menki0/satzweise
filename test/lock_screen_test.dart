@@ -19,42 +19,48 @@ void main() {
   });
   tearDown(() => c.dispose());
 
-  List<String> ids() => lockContent(c)!.actions.map((a) => a.id).toList();
+  LockContent l() => lockContent(c)!;
+  List<String> ids() => l().buttons.map((a) => a.id).toList();
 
-  test('ohne Training keine Benachrichtigung', () {
+  test('ohne Training keine Player-Karte', () {
     expect(lockContent(c), isNull);
   });
 
   test('ganzes Training nur über die Knöpfe des Sperrbildschirms', () {
     c.startWorkout('limbs');
-    expect(lockContent(c)!.title, 'Womit startest du?');
-    final pick = ids().firstWhere((i) => i.startsWith('pick:'));
-    runLockAction(c, pick);
+    expect(l().title, 'Womit startest du?');
+    expect(ids().first, 'undo');
+    runLockAction(c, ids().firstWhere((i) => i.startsWith('pick:')));
 
-    var l = lockContent(c)!;
-    expect(l.title, endsWith('Satz 1/3'));
-    expect(l.chronoDown, isFalse, reason: 'Gesamtzeit läuft hoch');
-    expect(l.actions.length, lessThanOrEqualTo(3));
-    expect(ids(), ['undo', 'repsMinus', 'done']);
+    expect(l().mode, LockMode.set);
+    expect(l().title, endsWith('Satz 1/3'));
+    expect(l().primary!.id, 'done', reason: '⏸ beendet den Satz');
+    expect(ids(), ['undo', 'repsMinus', 'repsPlus', 'end']);
+    expect(l().subtitle, contains('{total}'));
 
-    runLockAction(c, 'repsMinus');
-    expect(c.workout!.sets.first.reps, 7);
+    final before = c.workout!.sets.first.reps;
+    runLockAction(c, 'repsPlus');
+    expect(c.workout!.sets.first.reps, before + 1);
     runLockAction(c, 'undo');
-    expect(c.workout!.sets.first.reps, 8);
+    expect(c.workout!.sets.first.reps, before);
 
     runLockAction(c, 'done');
-    l = lockContent(c)!;
-    expect(l.title, startsWith('Pause'));
-    expect(l.chronoDown, isTrue, reason: 'Pause zählt rückwärts');
-    expect(l.restEndsAt, t.add(const Duration(seconds: 90)));
+    expect(l().mode, LockMode.rest);
+    expect(l().primary!.id, 'skip', reason: '▶ geht weiter');
+    expect(l().restStart, t);
+    expect(l().restEnd, t.add(const Duration(seconds: 90)));
     runLockAction(c, 'restPlus');
-    expect(lockContent(c)!.restEndsAt, t.add(const Duration(seconds: 105)));
+    expect(l().restEnd, t.add(const Duration(seconds: 105)));
+    expect(l().restStart, t, reason: 'Balken beginnt weiter beim Satzende');
+    runLockAction(c, 'restMinus');
     runLockAction(c, 'skip');
+    expect(l().mode, LockMode.set);
     runLockAction(c, 'done');
     runLockAction(c, 'skip');
     runLockAction(c, 'done');
 
-    expect(ids(), ['rate:leicht', 'rate:passend', 'rate:schwer']);
+    expect(ids(), ['rate:leicht', 'rate:passend', 'rate:schwer', 'undo']);
+    expect(l().primary, isNull);
     runLockAction(c, 'rate:passend');
     expect(ids(), ['undo', 'keep', 'accept']);
     runLockAction(c, 'accept');
@@ -67,20 +73,38 @@ void main() {
     expect(lockContent(c), isNull);
   });
 
-  test('Brücke schickt nur bei Änderungen und beendet die Benachrichtigung', () async {
+  test('höchstens vier Zusatzknöpfe plus Hauptknopf in jedem Schritt', () {
+    c.startWorkout('torso');
+    void check() => expect(l().buttons.length, lessThanOrEqualTo(4));
+    check();
+    c.pickExercise('Bankdrücken');
+    check();
+    c.completeSet();
+    check();
+  });
+
+  test('Brücke schickt Bild einmal je Übung und nur bei Änderungen', () async {
     final calls = <String>[];
     const ch = MethodChannel('test/lock');
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(ch, (m) async {
       calls.add(m.method);
       return m.method == 'pendingActions' ? <String>[] : null;
     });
-    await LockScreenBridge(c, channel: ch).start();
+    await LockScreenBridge(c, channel: ch, renderArtwork: (_) async => Uint8List(4)).start();
     calls.clear();
     c.startWorkout('torso');
+    await pumpEventQueue();
     c.tick();
     c.tick();
-    expect(calls, ['update'], reason: 'Sekundentakt löst kein erneutes Senden aus');
+    await pumpEventQueue();
+    expect(calls, ['artwork', 'update'], reason: 'Sekundentakt löst kein erneutes Senden aus');
+    c.pickExercise('Latzug');
+    await pumpEventQueue();
+    c.changeReps(1);
+    await pumpEventQueue();
+    expect(calls.where((m) => m == 'artwork'), hasLength(2));
     c.cancelWorkout();
+    await pumpEventQueue();
     expect(calls.last, 'stop');
   });
 }

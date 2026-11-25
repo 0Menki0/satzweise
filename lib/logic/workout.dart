@@ -125,8 +125,14 @@ String clock(int sec) {
   return h > 0 ? '$h:${two(m)}:${two(s)}' : '$m:${two(s)}';
 }
 
-/// Vorbelegung der Sätze für eine neu gewählte Übung.
+/// Vorbelegung der Sätze für eine neu gewählte Übung: die Wiederholungen vom
+/// letzten Mal, Satz für Satz. So zählt nur, was wirklich geschafft wurde.
+/// Nach einer Steigerung beginnt das Ziel unten im Wiederholungsbereich.
 List<SetEntry> plannedSets(Exercise e, ExerciseLog? last, {int count = 3}) {
   final p = prefill(e, last);
-  return List.generate(count, (_) => SetEntry(reps: p.reps, weight: p.weight));
+  final n = last == null ? count : last.sets.length.clamp(1, 10);
+  return List.generate(n, (i) {
+    final reps = p.increased || last == null ? p.reps : last.sets[i].reps.clamp(0, e.repMax);
+    return SetEntry(reps: reps, weight: p.weight);
+  });
 }

@@ -37,7 +37,8 @@ void main() {
       }
     }
     expect(find.text('Wie hat es sich angefühlt?'), findsOneWidget);
-    await tester.tap(find.text('Passend'));
+    expect(find.textContaining('Leicht steigert schneller'), findsOneWidget);
+    await tester.tap(find.text('Leicht'));
     await tester.pump();
     expect(find.text('42,5 kg'), findsOneWidget);
     await tester.tap(find.text('Übernehmen'));

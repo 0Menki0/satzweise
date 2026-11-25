@@ -100,10 +100,43 @@ class _HistoryTabState extends State<HistoryTab> {
                       ),
                     ]),
                   ),
+              if (open == s.id)
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton.icon(
+                    onPressed: () => _confirmDelete(s),
+                    icon: const Icon(Icons.delete_outline, size: 18),
+                    label: const Text('Training löschen'),
+                    style: TextButton.styleFrom(foregroundColor: AppColors.red),
+                  ),
+                ),
             ]),
           ),
         ),
     ];
+  }
+
+  Future<void> _confirmDelete(Session s) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Training löschen?'),
+        content: Text('${dayById(s.day).name} am ${dayLabel(s.start)} mit ${s.items.length} Übungen und ${s.setCount} Sätzen '
+            'wird endgültig gelöscht. Die Gewichtsvorgaben richten sich danach wieder nach deinem letzten verbliebenen Training.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Abbrechen')),
+          FilledButton(
+            style: FilledButton.styleFrom(minimumSize: const Size(0, 44)),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Löschen'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    widget.c.deleteSession(s.id);
+    setState(() => open = null);
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Training gelöscht')));
   }
 
   List<Widget> _exercises(BuildContext context) {

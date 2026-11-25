@@ -136,7 +136,7 @@ class Prefill {
 /// beginnt wieder unten im Wiederholungsbereich.
 Prefill prefill(Exercise e, ExerciseLog? last) {
   if (last == null || last.sets.isEmpty) {
-    return Prefill(e.repMax, e.nextWeight ?? e.startWeight, increased: false);
+    return Prefill(e.repMin, e.nextWeight ?? e.startWeight, increased: false);
   }
   final top = last.topSet;
   final allTop = last.sets.every((s) => s.reps >= e.repMax);
@@ -157,23 +157,36 @@ String fmtKg(double w) {
   return s.replaceAll('.', ',');
 }
 
+/// Empfehlung fürs nächste Mal nach der Rückmeldung (doppelte Progression):
+///
+/// * leicht: alle Sätze oben → zwei Steigerungsstufen; alle im Zielbereich →
+///   eine Stufe. Es wären noch Wiederholungen gegangen.
+/// * passend: erst steigern, wenn alle Sätze oben im Bereich liegen.
+/// * schwer: Gewicht halten; unter dem Zielbereich etwa 10 % runter.
 Recommendation recommend(Exercise e, List<SetEntry> sets, Rating rating) {
   final done = sets.where((s) => s.done).toList();
   final w = done.map((s) => s.weight).fold<double>(0, math.max);
   final allTop = done.every((s) => s.reps >= e.repMax);
-  final failed = done.any((s) => s.reps < e.repMin);
-  if (failed && rating == Rating.schwer) {
-    final down = math.max(e.step, (w * 0.9 / e.step).round() * e.step);
-    return Recommendation(down, 'Wiederholungen nicht geschafft und schwer: etwa 10 % runter, sauber neu aufbauen.');
+  final inRange = done.every((s) => s.reps >= e.repMin);
+  final step = fmtKg(e.step);
+  switch (rating) {
+    case Rating.leicht when allTop:
+      return Recommendation(w + 2 * e.step,
+          'Alle Sätze bei ${e.repMax} Wdh. und es wären noch einige gegangen: gleich zwei Stufen, +${fmtKg(2 * e.step)} kg.');
+    case Rating.leicht when inRange:
+      return Recommendation(w + e.step, 'Im Zielbereich und noch Luft: +$step kg, dann wieder Richtung ${e.repMax} Wdh. arbeiten.');
+    case Rating.leicht:
+      return Recommendation(w, 'Noch unter ${e.repMin} Wdh.: Gewicht halten und mehr Wiederholungen schaffen.');
+    case Rating.passend when allTop:
+      return Recommendation(w + e.step, 'Alle Sätze bei ${e.repMax} Wdh.: Zeit für +$step kg.');
+    case Rating.passend:
+      return Recommendation(w, 'Gleiches Gewicht. Gesteigert wird, sobald alle Sätze ${e.repMax} Wdh. erreichen.');
+    case Rating.schwer when !inRange:
+      final down = math.max(e.step, (w * 0.9 / e.step).round() * e.step);
+      return Recommendation(down, 'Unter ${e.repMin} Wdh. und am Limit: etwa 10 % runter und sauber neu aufbauen.');
+    case Rating.schwer:
+      return Recommendation(w, 'Am Limit: Gewicht halten, bis es sich wieder passend anfühlt.');
   }
-  if (allTop && rating != Rating.schwer) {
-    return Recommendation(w + e.step,
-        'Alle Sätze bei ${e.repMax} Wdh. und ${rating.label.toLowerCase()}: Zeit für +${fmtKg(e.step)} kg.');
-  }
-  if (rating == Rating.leicht) {
-    return Recommendation(w, 'Fühlte sich leicht an. Erst ${e.repMax} Wdh. in allen Sätzen, dann steigern.');
-  }
-  return Recommendation(w, 'Gleiches Gewicht und Ziel ${e.repMax} Wdh. in jedem Satz.');
 }
 
 enum Trend { up, same, down, neu }

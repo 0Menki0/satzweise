@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:satzweise/data/catalog.dart';
 import 'package:satzweise/data/models.dart';
 import 'package:satzweise/logic/coach.dart';
+import 'package:satzweise/logic/workout.dart';
 
 ExerciseLog log(String n, List<(int, double)> sets, {String machine = ''}) => ExerciseLog(
     exercise: n, machine: machine, sets: [for (final s in sets) SetEntry(reps: s.$1, weight: s.$2, done: true)]);
@@ -15,10 +16,10 @@ void main() {
   final d0 = DateTime(2026, 11, 2);
 
   group('Vorbelegung (doppelte Progression)', () {
-    test('ohne Verlauf: Startgewicht und obere Wiederholungen', () {
+    test('ohne Verlauf: Startgewicht und untere Wiederholungen', () {
       final p = prefill(e('Bankdrücken'), null);
       expect(p.weight, 40);
-      expect(p.reps, 8);
+      expect(p.reps, 6);
       expect(p.increased, isFalse);
     });
 
@@ -36,18 +37,29 @@ void main() {
     });
   });
 
-  group('Empfehlung nach Rückmeldung', () {
+  group('Empfehlung nach Rückmeldung (Bankdrücken 6–8 Wdh.)', () {
     List<SetEntry> sets(List<int> reps) => [for (final r in reps) SetEntry(reps: r, weight: 60, done: true)];
+    double rec(List<int> reps, Rating r) => recommend(e('Bankdrücken'), sets(reps), r).weight;
 
-    test('oben geschafft und passend: +Steigerung', () {
-      expect(recommend(e('Bankdrücken'), sets([8, 8, 8]), Rating.passend).weight, 62.5);
+    test('leicht und passend unterscheiden sich', () {
+      expect(rec([7, 6, 6], Rating.leicht), 62.5, reason: 'im Bereich und Luft: eine Stufe');
+      expect(rec([7, 6, 6], Rating.passend), 60, reason: 'passend: erst wenn alle oben');
+      expect(rec([8, 8, 8], Rating.leicht), 65, reason: 'oben und leicht: zwei Stufen');
+      expect(rec([8, 8, 8], Rating.passend), 62.5);
     });
-    test('oben geschafft, aber schwer: gleich', () {
-      expect(recommend(e('Bankdrücken'), sets([8, 8, 8]), Rating.schwer).weight, 60);
+    test('unter dem Bereich: leicht hält, schwer senkt', () {
+      expect(rec([6, 5, 5], Rating.leicht), 60);
+      expect(rec([5, 4, 4], Rating.schwer), 55);
     });
-    test('nicht geschafft und schwer: etwa 10 % runter', () {
-      expect(recommend(e('Bankdrücken'), sets([5, 4, 4]), Rating.schwer).weight, 55);
+    test('schwer im Bereich: halten', () {
+      expect(rec([8, 8, 8], Rating.schwer), 60);
     });
+  });
+
+  test('Vorbelegung übernimmt die Wiederholungen je Satz vom letzten Mal', () {
+    final s = plannedSets(e('Bankdrücken'), log('Bankdrücken', [(8, 60), (7, 60), (6, 60)]));
+    expect(s.map((x) => x.reps), [8, 7, 6]);
+    expect(s.map((x) => x.weight), [60, 60, 60]);
   });
 
   group('Nächste Übung und gelernte Abläufe', () {
