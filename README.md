@@ -27,10 +27,27 @@ Grundversion der Handy-App, nach dem klickbaren Entwurf:
 - **Sätze:** keine feste Anzahl. Nach jedem Satz folgen Pause und ein neuer Satz, bis die Übung beendet wird.
 - **Verlauf:** Gespeicherte Trainings lassen sich löschen.
 
+## Garmin-Uhr (Venu 2)
+
+Im Ordner `watch/` liegt die Connect-IQ-App für die Uhr:
+
+- **Was die Uhr zeigt:** das laufende Training wie die Handy-App, mit denselben Knöpfen. Die obere Taste löst die Hauptaktion aus (z. B. Satz fertig), die untere nimmt den letzten Schritt zurück.
+- **Training starten:** geht auch von der Uhr aus, mit Wahl zwischen Studio und daheim.
+- **Aufzeichnung:** Die Uhr zeichnet das Training als Garmin-Aktivität „Krafttraining“ auf, benannt nach dem Trainingstag (z. B. „Limbs · Daheim“), mit Herzfrequenz und einer Runde je Satz. Die Aktivität geht wie gewohnt an Garmin Connect und weiter an Strava.
+- **Ohne Verbindung:** Satz, Pause, Wiederholungen und Gewicht rechnet die Uhr selbst weiter. Knopfdrücke, die nicht beim Handy ankommen, schickt sie nach.
+- **Handy-Seite:** `android/.../WatchBridge.kt` mit dem Connect IQ Mobile SDK und `lib/platform/watch.dart`.
+
+Zum Bauen braucht es das Connect IQ SDK und die Gerätebeschreibung `venu2` aus Garmins SDK Manager (Anmeldung mit Garmin-Konto):
+
+```bash
+monkeyc -f watch/monkey.jungle -d venu2 -o Satzweise.prg -y developer_key.der
+```
+
+Die Datei `Satzweise.prg` kommt per USB in den Ordner `GARMIN/APPS` der Uhr.
+
 ## Geplant
 
-1. iOS: Live Activity für den Sperrbildschirm. Dafür braucht es einen Mac mit Xcode.
-2. Garmin Venu 2: Connect-IQ-App, die die Aktivität selbst aufzeichnet. Sie läuft über Garmin Connect weiter zu Strava, gleicht sich mit dem Handy ab und funktioniert auch ohne Verbindung.
+1. iOS: Live Activity für den Sperrbildschirm und die Verbindung zur Uhr. Dafür braucht es einen Mac mit Xcode.
 
 ## Entwickeln
 

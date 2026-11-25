@@ -6,6 +6,7 @@ import 'package:material_ui/material_ui.dart';
 import 'data/store.dart';
 import 'logic/controller.dart';
 import 'platform/lock_screen.dart';
+import 'platform/watch.dart';
 import 'ui/history_tab.dart';
 import 'ui/settings_tab.dart';
 import 'ui/theme.dart';
@@ -27,7 +28,10 @@ Future<void> main() async {
   }
   runApp(SatzweiseApp(c: c));
   await c.load(demo: kIsWeb && Uri.base.queryParameters.containsKey('demo'));
-  if (android) await LockScreenBridge(c).start();
+  if (android) {
+    await LockScreenBridge(c).start();
+    await WatchBridge(c).start();
+  }
 }
 
 class SatzweiseApp extends StatelessWidget {

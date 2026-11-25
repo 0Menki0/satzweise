@@ -17,6 +17,19 @@ import io.flutter.plugin.common.MethodChannel
 class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        val watch = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, WATCH_CHANNEL)
+        WatchBridge.attach(this, watch)
+        watch.setMethodCallHandler { call, result ->
+            when (call.method) {
+                "send" -> {
+                    @Suppress("UNCHECKED_CAST")
+                    WatchBridge.send(call.arguments as Map<String, Any?>)
+                    result.success(null)
+                }
+                "pendingActions" -> result.success(WatchBridge.drain())
+                else -> result.notImplemented()
+            }
+        }
         val channel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
         ActionBus.attach(channel)
         channel.setMethodCallHandler { call, result ->
@@ -40,6 +53,7 @@ class MainActivity : FlutterActivity() {
 
     override fun onDestroy() {
         ActionBus.detach()
+        WatchBridge.detach()
         super.onDestroy()
     }
 
@@ -53,5 +67,6 @@ class MainActivity : FlutterActivity() {
 
     companion object {
         const val CHANNEL = "satzweise/workout_notification"
+        const val WATCH_CHANNEL = "satzweise/watch"
     }
 }

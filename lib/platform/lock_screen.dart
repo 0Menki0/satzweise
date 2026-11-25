@@ -158,6 +158,14 @@ void runLockAction(AppController c, String id) {
   final w = c.workout;
   if (id == 'undo') return c.undo();
   if (id == 'restFinished') return c.tick();
+  if (id.startsWith('go:')) {
+    // go:<Tag>:<Ort>, z. B. von der Uhr: Training starten.
+    final p = id.split(':');
+    if (w == null && p.length == 3 && dayTypes.containsKey(p[1])) {
+      c.startWorkout(p[1], place: Place.values.asNameMap()[p[2]] ?? Place.studio);
+    }
+    return;
+  }
   if (w == null) return;
   switch (id) {
     case 'done':

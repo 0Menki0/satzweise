@@ -52,6 +52,7 @@ android {
     buildTypes {
         release {
             signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
 }
@@ -64,4 +65,9 @@ kotlin {
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    // Verbindung zur Satzweise-App auf der Garmin-Uhr (über Garmin Connect).
+    implementation("com.garmin.connectiq:ciq-companion-app-sdk:2.4.0@aar")
 }

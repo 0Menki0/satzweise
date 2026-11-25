@@ -44,6 +44,10 @@ class AppController extends ChangeNotifier {
   /// Wird aufgerufen, wenn eine Pause abläuft (Vibration).
   VoidCallback? onRestFinished;
 
+  /// Wie das letzte Training endete ("saved" oder "cancelled"); die Uhr
+  /// speichert oder verwirft danach ihre Aufzeichnung.
+  String? lastEnd;
+
   /// Zeitpunkt, an dem die letzte Pause ablief; für den Hinweis „Pause vorbei“.
   DateTime? restFinishedAt;
 
@@ -187,6 +191,7 @@ class AppController extends ChangeNotifier {
 
   void startWorkout(String dayId, {Place place = Place.studio}) {
     _snap('${dayById(dayId).name} ${place.label.toLowerCase()} gestartet');
+    lastEnd = null;
     workout = ActiveWorkout(
         plan: dayById(dayId).planId, day: dayId, place: place, startedAt: now, restSec: settings.restSec);
     _changed();
@@ -195,6 +200,7 @@ class AppController extends ChangeNotifier {
   void cancelWorkout() {
     _snap('Training abgebrochen');
     workout = null;
+    lastEnd = 'cancelled';
     _changed();
   }
 
@@ -369,6 +375,7 @@ class AppController extends ChangeNotifier {
       items: w.items.map((i) => i.copy()).toList(),
     ));
     workout = null;
+    lastEnd = 'saved';
     _changed();
   }
 
