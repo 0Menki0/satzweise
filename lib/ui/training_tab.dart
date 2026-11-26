@@ -10,6 +10,9 @@ import 'pictogram.dart';
 import 'theme.dart';
 import 'widgets.dart';
 
+/// Ablauf (gleich auf Uhr, App und Sperrbildschirm):
+/// Ort → Trainingsart → Übung → Aufwärmen → Satz → Satz eintragen (Pause
+/// läuft) → Pause → Satz … → Übung beenden → Rückmeldung → Übung …
 class TrainingTab extends StatelessWidget {
   const TrainingTab({super.key, required this.c, required this.openSettings});
   final AppController c;
@@ -20,9 +23,11 @@ class TrainingTab extends StatelessWidget {
     final w = c.workout;
     final Widget body = switch (w?.phase) {
       null => StartView(c: c),
-      Phase.set => _SetView(c: c),
+      Phase.warmup => _WarmupView(c: c),
+      Phase.set => _SetRunView(c: c),
+      Phase.log => _LogView(c: c),
+      Phase.rest => _RestView(c: c),
       Phase.feedback => _FeedbackView(c: c),
-      Phase.recommend => _RecommendView(c: c),
       Phase.next => _NextView(c: c, openSettings: openSettings),
       Phase.summary => _SummaryView(c: c),
     };
@@ -32,6 +37,7 @@ class TrainingTab extends StatelessWidget {
 
 // ------------------------------------------------------------------ Start
 
+/// Zwei Schritte: erst der Ort, dann die Trainingsart.
 class StartView extends StatefulWidget {
   const StartView({super.key, required this.c});
   final AppController c;
@@ -41,78 +47,93 @@ class StartView extends StatefulWidget {
 }
 
 class _StartViewState extends State<StartView> {
-  late String plan;
-  late String day;
-  late Place place;
-
-  @override
-  void initState() {
-    super.initState();
-    final last = widget.c.sessions.lastOrNull;
-    plan = last?.plan ?? 'tl';
-    place = last?.place ?? Place.studio;
-    day = nextDay(widget.c.sessions, plan).id;
-  }
-
-  void _pickPlan(String p) => setState(() {
-        plan = p;
-        day = nextDay(widget.c.sessions, p).id;
-      });
+  Place? place;
+  bool more = false;
 
   @override
   Widget build(BuildContext context) {
     final c = widget.c, col = AppColors.of(context);
-    final p = planById(plan), due = nextDay(c.sessions, plan);
-    final last = c.sessions.lastWhereOrNull((s) => s.plan == plan);
-    final order = usualOrder(c.sessions, day, place: place, only: {for (final e in c.selected) e.name});
-    Widget planCard(TrainingPlan x) =>
-        ChoiceCard(title: x.name, subtitle: x.description, selected: plan == x.id, onTap: () => _pickPlan(x.id));
-    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      Row(children: [
-        Expanded(child: Text(DateFormat('EEEE, d. MMMM', 'de_DE').format(c.now), style: TextStyle(color: col.mute, fontSize: 13))),
+    final last = c.sessions.lastOrNull;
+    final head = Row(children: [
+      Expanded(
+          child: Text(place == null ? DateFormat('EEEE, d. MMMM', 'de_DE').format(c.now) : place!.label,
+              style: TextStyle(color: col.mute, fontSize: 13))),
+      if (place != null)
+        OutlinedButton.icon(
+          onPressed: () => setState(() => place = null),
+          icon: const Icon(Icons.undo, size: 18),
+          label: const Text('Zurück'),
+          style: OutlinedButton.styleFrom(minimumSize: const Size(0, 36), shape: const StadiumBorder()),
+        )
+      else
         UndoButton(c),
-      ]),
-      const SizedBox(height: 6),
-      Text('Was trainierst du heute?', style: display(context, 32)),
-      const SizedBox(height: 12),
-      SegmentedButton<Place>(
-        segments: const [
-          ButtonSegment(value: Place.studio, label: Text('Im Studio'), icon: Icon(Icons.fitness_center)),
-          ButtonSegment(value: Place.home, label: Text('Daheim'), icon: Icon(Icons.home_outlined)),
+    ]);
+
+    if (place == null) {
+      final usual = last?.place ?? Place.studio;
+      return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        head,
+        const SizedBox(height: 6),
+        Text('Wo trainierst du heute?', style: display(context, 32)),
+        const SizedBox(height: 14),
+        for (final p in [usual, ...Place.values.where((p) => p != usual)]) ...[
+          ChoiceCard(
+            title: p == Place.studio ? 'Im Studio' : 'Daheim',
+            subtitle: p == Place.home
+                ? 'Nur Übungen, die daheim gehen'
+                : (last == null ? 'Alle Übungen' : 'Zuletzt am ${dayLabel(last.start)}'),
+            selected: p == usual,
+            onTap: () => setState(() => place = p),
+          ),
+          const SizedBox(height: 10),
         ],
-        selected: {place},
-        onSelectionChanged: (s) => setState(() => place = s.first),
+      ]);
+    }
+
+    final plan = last?.plan ?? 'tl';
+    final due = nextDay(c.sessions, plan);
+    final options = <DayType>[
+      due,
+      for (final d in planById(plan).days)
+        if (d.id != due.id) d,
+      if (plan != 'gk') dayById('gk') else ...planById('tl').days,
+    ];
+    final others = [
+      for (final p in plans)
+        if (p.id != plan && p.id != 'gk' && !(plan == 'gk' && p.id == 'tl')) p,
+    ];
+    Widget card(DayType d, {bool dueMark = false}) {
+      final l = c.sessions.where((s) => s.day == d.id).lastOrNull;
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 10),
+        child: ChoiceCard(
+          title: d.name,
+          subtitle: [d.description, if (l != null) 'zuletzt ${dayLabel(l.start)}'].join(' · '),
+          selected: dueMark,
+          badge: dueMark ? 'dran' : null,
+          onTap: () => c.startWorkout(d.id, place: place!),
+        ),
+      );
+    }
+
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      head,
+      const SizedBox(height: 6),
+      Text('Was trainierst du?', style: display(context, 32)),
+      const SizedBox(height: 14),
+      for (final d in options) card(d, dueMark: d.id == due.id),
+      TextButton(
+        onPressed: () => setState(() => more = !more),
+        child: Text(more ? 'Weitere Trainingsarten ausblenden' : 'Weitere Trainingsarten'),
       ),
-      const SizedBox(height: 12),
-      for (final x in plans.where((x) => x.usual)) ...[planCard(x), const SizedBox(height: 8)],
-      if (p.days.length > 1) ...[
-        const SectionTitle('Welcher Tag?'),
-        Row(children: [
-          for (final d in p.days) ...[
-            Expanded(
-                child: ChoiceCard(
-                    title: d.name,
-                    subtitle: d.description,
-                    selected: day == d.id,
-                    badge: d.id == due.id ? 'dran' : null,
-                    onTap: () => setState(() => day = d.id))),
-            if (d != p.days.last) const SizedBox(width: 8),
-          ],
-        ]),
-      ],
-      const SizedBox(height: 12),
-      Hint(Text([
-        last == null ? 'Mit diesem Plan hast du noch nicht trainiert.' : 'Zuletzt ${dayById(last.day).name} am ${dayLabel(last.start)}',
-        if (order.isNotEmpty) 'Üblicher Ablauf: ${order.join(' → ')}',
-      ].join('\n'))),
-      const SizedBox(height: 12),
-      FilledButton(
-          onPressed: () => c.startWorkout(day, place: place),
-          child: Text('${dayById(day).name} ${place == Place.home ? 'daheim' : 'im Studio'} starten')),
-      const SizedBox(height: 22),
-      Text('Weitere Trainingsarten', style: TextStyle(color: col.mute, fontSize: 13, fontWeight: FontWeight.w600)),
-      const SizedBox(height: 8),
-      for (final x in plans.where((x) => !x.usual)) ...[planCard(x), const SizedBox(height: 8)],
+      if (more)
+        for (final p in others) ...[
+          Padding(
+            padding: const EdgeInsets.only(top: 6, bottom: 6),
+            child: Text(p.name, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: col.mute)),
+          ),
+          for (final d in p.days) card(d, dueMark: false),
+        ],
     ]);
   }
 }
@@ -133,7 +154,6 @@ class _Header extends StatelessWidget {
           Text('· ${w.place.label} · Gesamt', style: TextStyle(fontSize: 13, color: col.mute)),
           Text(clock(w.elapsedSec(c.now)),
               style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, fontFeatures: [FontFeature.tabularFigures()])),
-          Text('· ${w.items.length} erledigt', style: TextStyle(fontSize: 13, color: col.mute)),
         ]),
       ),
       UndoButton(c),
@@ -141,11 +161,39 @@ class _Header extends StatelessWidget {
   }
 }
 
-// ------------------------------------------------------------------ Satz
+/// Großer Zeitblock: Aufwärmen, Satz oder Pause.
+class _BigClock extends StatelessWidget {
+  const _BigClock({required this.label, required this.value, required this.color, this.progress});
+  final String label, value;
+  final Color color;
+  final double? progress;
 
-class _SetView extends StatelessWidget {
-  const _SetView({required this.c});
+  @override
+  Widget build(BuildContext context) {
+    final col = AppColors.of(context);
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 16),
+      decoration: BoxDecoration(color: col.soft, borderRadius: BorderRadius.circular(16)),
+      child: Column(children: [
+        Text(label, style: TextStyle(fontSize: 13, color: col.mute)),
+        const SizedBox(height: 4),
+        Text(value, style: display(context, 64, color: color)),
+        if (progress != null) ...[
+          const SizedBox(height: 10),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: LinearProgressIndicator(value: progress, color: color, backgroundColor: col.line, minHeight: 6),
+          ),
+        ],
+      ]),
+    );
+  }
+}
+
+class _ExerciseTitle extends StatelessWidget {
+  const _ExerciseTitle({required this.c, required this.subtitle});
   final AppController c;
+  final String subtitle;
 
   Future<void> _editMachine(BuildContext context) async {
     final w = c.workout!;
@@ -182,6 +230,108 @@ class _SetView extends StatelessWidget {
     if (r == 'default') c.saveMachineAsDefault();
   }
 
+  @override
+  Widget build(BuildContext context) {
+    final w = c.workout!, col = AppColors.of(context);
+    final e = c.exercise(w.exercise!);
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      Row(children: [
+        Pictogram(kind: pictogramFor(e, e.name), size: 52),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(e.name, style: display(context, 28)),
+            Text(subtitle, style: TextStyle(fontSize: 13, color: col.mute)),
+          ]),
+        ),
+      ]),
+      const SizedBox(height: 6),
+      Align(
+        alignment: Alignment.centerLeft,
+        child: TextButton.icon(
+          onPressed: () => _editMachine(context),
+          icon: const Icon(Icons.edit_outlined, size: 16),
+          label: Text([
+            w.machine.isEmpty ? 'Kein Gerät' : 'Gerät ${w.machine}',
+            if (w.note.isNotEmpty) w.note,
+            if (w.lastMachine.isNotEmpty && w.lastMachine != w.machine) 'zuletzt Gerät ${w.lastMachine}',
+          ].join(' · ')),
+        ),
+      ),
+    ]);
+  }
+}
+
+// ------------------------------------------------------------------ Aufwärmen
+
+class _WarmupView extends StatelessWidget {
+  const _WarmupView({required this.c});
+  final AppController c;
+
+  @override
+  Widget build(BuildContext context) {
+    final w = c.workout!, col = AppColors.of(context);
+    final e = c.exercise(w.exercise!);
+    final s = w.currentSet!;
+    final last = lastLog(c.sessions, e.name);
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      _Header(c: c),
+      const SizedBox(height: 8),
+      _ExerciseTitle(c: c, subtitle: 'Ziel ${e.repMin}–${e.repMax} Wdh. je Satz'),
+      const SizedBox(height: 8),
+      _BigClock(label: 'Aufwärmen', value: clock(w.warmupElapsedSec(c.now)), color: col.blue),
+      const SizedBox(height: 12),
+      Hint(Text.rich(TextSpan(children: [
+        const TextSpan(text: '1. Satz geplant: '),
+        TextSpan(text: setLabel(e, s.reps, s.weight), style: const TextStyle(fontWeight: FontWeight.w700)),
+        if (last != null)
+          TextSpan(
+              text: '\nLetztes Mal (${dayLabel(last.date)}): ${last.log.sets.map((x) => x.reps).join(' / ')} Wdh. · '
+                  '${weightText(e, last.log.topSet.weight)}'
+                  '${s.weight > last.log.topSet.weight ? ' · Steigerung' : ''}'),
+      ]))),
+      const SizedBox(height: 14),
+      FilledButton(onPressed: c.startSet, child: const Text('Satz starten')),
+    ]);
+  }
+}
+
+// ------------------------------------------------------------------ Satz läuft
+
+class _SetRunView extends StatelessWidget {
+  const _SetRunView({required this.c});
+  final AppController c;
+
+  @override
+  Widget build(BuildContext context) {
+    final w = c.workout!, col = AppColors.of(context);
+    final e = c.exercise(w.exercise!);
+    final s = w.currentSet!;
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      _Header(c: c),
+      const SizedBox(height: 8),
+      _ExerciseTitle(c: c, subtitle: 'Satz ${w.current + 1} · geplant ${setLabel(e, s.reps, s.weight)}'),
+      if (c.restJustFinished) ...[
+        const SizedBox(height: 8),
+        Hint(const Text('Pause vorbei, auf zum nächsten Satz', style: TextStyle(fontWeight: FontWeight.w600)),
+            color: col.green, fg: Colors.white),
+      ],
+      const SizedBox(height: 8),
+      _BigClock(label: 'Satz läuft', value: clock(w.setElapsedSec(c.now)), color: AppColors.red),
+      const SizedBox(height: 16),
+      FilledButton(onPressed: c.completeSet, child: const Text('Satz beenden')),
+      const SizedBox(height: 10),
+      for (final d in w.doneSets.reversed) _SetRow(i: w.sets.indexOf(d), s: d, e: e),
+    ]);
+  }
+}
+
+// ------------------------------------------------------------------ Satz eintragen
+
+class _LogView extends StatelessWidget {
+  const _LogView({required this.c});
+  final AppController c;
+
   /// Gewicht von Hand eintragen: Tipp auf die Zahl.
   Future<void> _enterWeight(BuildContext context, Exercise e, double current) async {
     final t = TextEditingController(text: current == 0 && e.bodyweight ? '' : fmtKg(current));
@@ -210,121 +360,89 @@ class _SetView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final w = c.workout!, col = AppColors.of(context), now = c.now;
+    final w = c.workout!;
     final e = c.exercise(w.exercise!);
-    final last = lastLog(c.sessions, e.name);
-    final resting = w.resting(now);
-    final cur = w.currentSet;
-
-    final hint = last == null
-        ? (e.bodyweight
-            ? 'Erstes Mal: mit Körpergewicht. Trag ein, wie viele Wiederholungen du schaffst.'
-            : 'Erstes Mal: Startgewicht ${fmtKg(w.sets.first.weight)} kg, passe es nach dem ersten Satz an.')
-        : 'Letztes Mal (${dayLabel(last.date)}): ${last.log.sets.map((s) => s.reps).join(' / ')} Wdh. × '
-            '${weightText(e, last.log.topSet.weight)}'
-            '${w.sets.first.weight > last.log.topSet.weight ? ' · Steigerung auf ${weightText(e, w.sets.first.weight)}' : ''}';
-
+    final s = w.currentSet!;
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       _Header(c: c),
       const SizedBox(height: 8),
-      Row(children: [
-        Pictogram(kind: pictogramFor(e, e.name), size: 58),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(e.name, style: display(context, 30)),
-            Text('Ziel ${e.repMin}–${e.repMax} Wdh. je Satz · Pause ${clock(w.restSec)}',
-                style: TextStyle(fontSize: 13, color: col.mute)),
-          ]),
-        ),
-      ]),
-      const SizedBox(height: 8),
-      OutlinedButton(
-        onPressed: () => _editMachine(context),
-        style: OutlinedButton.styleFrom(
-            side: BorderSide(color: col.line, style: BorderStyle.solid), padding: const EdgeInsets.symmetric(horizontal: 10)),
-        child: Row(children: [
-          if (w.machine.isEmpty) Text('Kein Gerät ', style: TextStyle(color: col.mute, fontSize: 13)) else MachineBadge(w.machine),
-          const SizedBox(width: 6),
-          Expanded(
-            child: Text(
-                [if (w.note.isNotEmpty) w.note, if (w.lastMachine.isNotEmpty && w.lastMachine != w.machine) 'zuletzt Gerät ${w.lastMachine}']
-                    .join(' · '),
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(fontSize: 13, color: col.ink, fontWeight: FontWeight.w400)),
-          ),
-          Text('ändern', style: TextStyle(fontSize: 13, color: col.mute)),
-        ]),
-      ),
-      const SizedBox(height: 8),
-      Hint(Text(hint)),
-      const SizedBox(height: 6),
-      for (var i = 0; i < w.sets.length; i++)
-        if (i == w.current)
-          Container(
-            margin: const EdgeInsets.symmetric(vertical: 6),
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(color: AppColors.red.withValues(alpha: .08), borderRadius: BorderRadius.circular(12)),
-            child: Column(children: [
-              Row(children: [
-                Expanded(
-                    child: Text(
-                        'Satz ${i + 1}${w.lastReps.length > i ? ' · letztes Mal ${w.lastReps[i]} Wdh.' : ''}',
-                        style: TextStyle(fontSize: 13, color: col.mute))),
-                if (!resting)
-                  Text('Satz läuft ${clock(w.setElapsedSec(now))}',
-                      style: const TextStyle(fontSize: 13, color: AppColors.red, fontWeight: FontWeight.w600)),
-              ]),
-              const SizedBox(height: 6),
-              Row(children: [
-                Expanded(
-                    child: StepField(
-                        value: '${w.sets[i].reps}',
-                        unit: 'Wdh.',
-                        semantics: 'Wiederholungen',
-                        onMinus: () => c.changeReps(-1),
-                        onPlus: () => c.changeReps(1))),
-                const SizedBox(width: 10),
-                Expanded(
-                    child: StepField(
-                        value: e.bodyweight && w.sets[i].weight == 0 ? 'KG' : fmtKg(w.sets[i].weight),
-                        onTapValue: () => _enterWeight(context, e, w.sets[i].weight),
-                        unit: e.bodyweight ? (w.sets[i].weight == 0 ? 'Körpergewicht' : 'kg Zusatz') : 'kg · tippen',
-                        semantics: 'Gewicht',
-                        onMinus: () => c.changeWeight(-1),
-                        onPlus: () => c.changeWeight(1))),
-              ]),
-            ]),
-          )
-        else
-          _SetRow(i: i, s: w.sets[i], e: e),
-      const SizedBox(height: 10),
-      if (resting)
-        _RestPanel(c: c)
-      else if (c.restJustFinished)
-        Hint(const Text('Pause vorbei, auf zum nächsten Satz', style: TextStyle(fontWeight: FontWeight.w600)),
-            color: col.green, fg: Colors.white)
-      else if (cur != null)
-        Row(children: [
-          Expanded(child: Text('Pause nach dem Satz\nStandard ${clock(c.settings.restSec)}', style: TextStyle(fontSize: 13, color: col.mute))),
-          SizedBox(
-            width: 190,
-            child: StepField(
-                value: clock(w.restSec),
-                unit: 'Pause',
-                minusLabel: '−15',
-                plusLabel: '+15',
-                semantics: 'Pause',
-                onMinus: () => c.adjustRest(-15),
-                onPlus: () => c.adjustRest(15)),
-          ),
-        ]),
+      _RestBar(c: c),
       const SizedBox(height: 12),
-      if (cur != null) FilledButton(onPressed: c.completeSet, child: const Text('Satz fertig')),
+      Text('Wie lief Satz ${w.current + 1}?', style: display(context, 28)),
+      Text(e.name, style: TextStyle(fontSize: 13, color: AppColors.of(context).mute)),
+      const SizedBox(height: 12),
+      StepField(
+          value: '${s.reps}',
+          unit: 'Wiederholungen',
+          semantics: 'Wiederholungen',
+          onMinus: () => c.changeReps(-1),
+          onPlus: () => c.changeReps(1)),
       const SizedBox(height: 10),
-      OutlinedButton(
-          onPressed: w.sets.any((s) => s.done) ? c.endExercise : null,
-          child: Text(w.sets.any((s) => s.done) ? 'Übung beenden (${w.doneSets.length} Sätze)' : 'Übung beenden')),
+      StepField(
+          value: e.bodyweight && s.weight == 0 ? 'KG' : fmtKg(s.weight),
+          unit: e.bodyweight ? (s.weight == 0 ? 'Körpergewicht' : 'kg Zusatz') : 'kg · tippen zum Eintippen',
+          semantics: 'Gewicht',
+          onTapValue: () => _enterWeight(context, e, s.weight),
+          onMinus: () => c.changeWeight(-1),
+          onPlus: () => c.changeWeight(1)),
+      const SizedBox(height: 16),
+      FilledButton(onPressed: c.continueSets, child: const Text('Weiter')),
+      const SizedBox(height: 10),
+      OutlinedButton(onPressed: c.endExercise, child: Text('Übung beenden (${w.doneSets.length} ${w.doneSets.length == 1 ? 'Satz' : 'Sätze'})')),
+      const SizedBox(height: 8),
+      Text('Läuft die Pause ab, geht es mit diesen Werten weiter.',
+          style: TextStyle(fontSize: 12, color: AppColors.of(context).mute)),
+    ]);
+  }
+}
+
+class _RestBar extends StatelessWidget {
+  const _RestBar({required this.c});
+  final AppController c;
+
+  @override
+  Widget build(BuildContext context) {
+    final w = c.workout!, col = AppColors.of(context);
+    final rem = w.restRemaining(c.now);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(color: col.blue, borderRadius: BorderRadius.circular(12)),
+      child: Row(children: [
+        const Expanded(child: Text('Pause läuft', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600))),
+        Text(clock(rem), style: display(context, 26, color: Colors.white)),
+      ]),
+    );
+  }
+}
+
+// ------------------------------------------------------------------ Pause
+
+class _RestView extends StatelessWidget {
+  const _RestView({required this.c});
+  final AppController c;
+
+  @override
+  Widget build(BuildContext context) {
+    final w = c.workout!, col = AppColors.of(context);
+    final e = c.exercise(w.exercise!);
+    final s = w.currentSet!;
+    final rem = w.restRemaining(c.now);
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      _Header(c: c),
+      const SizedBox(height: 8),
+      _ExerciseTitle(c: c, subtitle: 'danach Satz ${w.current + 1} · ${setLabel(e, s.reps, s.weight)}'),
+      const SizedBox(height: 8),
+      _BigClock(label: 'Pause', value: clock(rem), color: col.blue, progress: w.restSec == 0 ? 0 : rem / w.restSec),
+      const SizedBox(height: 12),
+      Row(children: [
+        Expanded(child: OutlinedButton(onPressed: () => c.adjustRest(-15), child: const Text('−15 s'))),
+        const SizedBox(width: 10),
+        Expanded(child: OutlinedButton(onPressed: () => c.adjustRest(15), child: const Text('+15 s'))),
+      ]),
+      const SizedBox(height: 12),
+      FilledButton(onPressed: c.skipRest, child: const Text('Pause beenden')),
+      const SizedBox(height: 10),
+      for (final d in w.doneSets.reversed) _SetRow(i: w.sets.indexOf(d), s: d, e: e),
     ]);
   }
 }
@@ -338,57 +456,15 @@ class _SetRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final col = AppColors.of(context);
-    return Opacity(
-      opacity: s.done ? 1 : .45,
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 10),
-        decoration: BoxDecoration(border: Border(bottom: BorderSide(color: col.line))),
-        child: Row(children: [
-          SizedBox(width: 56, child: Text('Satz ${i + 1}', style: TextStyle(fontSize: 13, color: col.mute))),
-          Expanded(child: Text(setLabel(e, s.reps, s.weight), style: display(context, 22, weight: FontWeight.w600))),
-          if (s.done) ...[
-            Icon(Icons.check, color: col.green, size: 18),
-            const SizedBox(width: 4),
-            Text('${s.durationSec} s', style: TextStyle(fontSize: 12, color: col.mute)),
-          ],
-        ]),
-      ),
-    );
-  }
-}
-
-class _RestPanel extends StatelessWidget {
-  const _RestPanel({required this.c});
-  final AppController c;
-
-  @override
-  Widget build(BuildContext context) {
-    final col = AppColors.of(context), w = c.workout!;
-    final rem = w.restRemaining(c.now);
-    ButtonStyle s() => OutlinedButton.styleFrom(
-        foregroundColor: Colors.white, side: const BorderSide(color: Colors.white54), minimumSize: const Size(0, 40));
     return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(color: col.blue, borderRadius: BorderRadius.circular(12)),
-      child: Column(children: [
-        Row(children: [
-          const Expanded(child: Text('Pause läuft', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600))),
-          Text(clock(rem), style: display(context, 30, color: Colors.white)),
-        ]),
-        const SizedBox(height: 6),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(4),
-          child: LinearProgressIndicator(
-              value: w.restSec == 0 ? 0 : rem / w.restSec, color: Colors.white, backgroundColor: Colors.white24, minHeight: 6),
-        ),
-        const SizedBox(height: 8),
-        Row(children: [
-          Expanded(child: OutlinedButton(style: s(), onPressed: () => c.adjustRest(-15), child: const Text('−15 s'))),
-          const SizedBox(width: 8),
-          Expanded(child: OutlinedButton(style: s(), onPressed: () => c.adjustRest(15), child: const Text('+15 s'))),
-          const SizedBox(width: 8),
-          Expanded(child: OutlinedButton(style: s(), onPressed: c.skipRest, child: const Text('Weiter'))),
-        ]),
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      decoration: BoxDecoration(border: Border(bottom: BorderSide(color: col.line))),
+      child: Row(children: [
+        SizedBox(width: 56, child: Text('Satz ${i + 1}', style: TextStyle(fontSize: 13, color: col.mute))),
+        Expanded(child: Text(setLabel(e, s.reps, s.weight), style: display(context, 20, weight: FontWeight.w600))),
+        Icon(Icons.check, color: col.green, size: 18),
+        const SizedBox(width: 4),
+        Text('${s.durationSec} s', style: TextStyle(fontSize: 12, color: col.mute)),
       ]),
     );
   }
@@ -403,21 +479,24 @@ class _FeedbackView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final w = c.workout!, col = AppColors.of(context);
+    final e = c.exercise(w.exercise!);
     final done = w.sets.where((s) => s.done);
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       _Header(c: c),
       const SizedBox(height: 10),
-      Text('${w.exercise} · ${done.map((s) => s.reps).join(' / ')} Wdh. · ${weightText(c.tryExercise(w.exercise!), done.first.weight)}',
+      Text('${w.exercise} · ${done.map((s) => s.reps).join(' / ')} Wdh. · ${weightText(e, done.first.weight)}',
           style: TextStyle(fontSize: 13, color: col.mute)),
       const SizedBox(height: 6),
-      Text('Wie hat es sich angefühlt?', style: display(context, 28)),
+      Text('Wie war\'s?', style: display(context, 30)),
       const SizedBox(height: 14),
       for (final r in Rating.values) ...[
         SizedBox(
           height: 64,
           child: OutlinedButton(
             onPressed: () => c.rate(r),
-            style: OutlinedButton.styleFrom(side: BorderSide(color: col.line, width: 2), padding: const EdgeInsets.symmetric(horizontal: 16)),
+            style: OutlinedButton.styleFrom(
+                side: BorderSide(color: r == Rating.passend ? AppColors.red : col.line, width: 2),
+                padding: const EdgeInsets.symmetric(horizontal: 16)),
             child: Row(children: [
               Expanded(child: Text(r.label, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700))),
               Text(r.hint, style: TextStyle(fontSize: 13, color: col.mute, fontWeight: FontWeight.w400)),
@@ -428,42 +507,9 @@ class _FeedbackView extends StatelessWidget {
       ],
       Text(
           'Leicht steigert schneller, auch wenn noch nicht alle Sätze oben im Bereich sind. '
-          'Passend steigert erst, wenn alle Sätze ${c.exercise(w.exercise!).repMax} Wdh. erreichen. '
+          'Passend steigert erst, wenn alle Sätze ${e.repMax} Wdh. erreichen. '
           'Schwer hält das Gewicht oder senkt es.',
           style: TextStyle(fontSize: 13, color: col.mute)),
-    ]);
-  }
-}
-
-class _RecommendView extends StatelessWidget {
-  const _RecommendView({required this.c});
-  final AppController c;
-
-  @override
-  Widget build(BuildContext context) {
-    final w = c.workout!, col = AppColors.of(context);
-    final keep = w.sets.where((s) => s.done).map((s) => s.weight).reduce((a, b) => a > b ? a : b);
-    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      _Header(c: c),
-      const SizedBox(height: 10),
-      Text('Nächstes Mal bei ${w.exercise}', style: display(context, 28)),
-      const SizedBox(height: 12),
-      Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(color: col.soft, borderRadius: BorderRadius.circular(16)),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(weightText(c.tryExercise(w.exercise!), w.recommendation!), style: display(context, 48, color: AppColors.red)),
-          const SizedBox(height: 6),
-          Text(w.recommendationReason ?? ''),
-        ]),
-      ),
-      const SizedBox(height: 14),
-      FilledButton(onPressed: () => c.finishExercise(accept: true), child: const Text('Übernehmen')),
-      const SizedBox(height: 10),
-      if (keep != w.recommendation)
-        OutlinedButton(
-            onPressed: () => c.finishExercise(accept: false),
-            child: Text('Lieber ${weightText(c.tryExercise(w.exercise!), keep)} lassen')),
     ]);
   }
 }
@@ -489,6 +535,10 @@ class _NextView extends StatelessWidget {
         ]);
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       _Header(c: c),
+      if (w.items.isNotEmpty && w.recommendationReason != null) ...[
+        const SizedBox(height: 10),
+        Hint(Text(w.recommendationReason!)),
+      ],
       const SizedBox(height: 10),
       Text(w.items.isEmpty ? 'Womit startest du?' : 'Als Nächstes?', style: display(context, 28)),
       const SizedBox(height: 12),
@@ -539,7 +589,7 @@ class _NextView extends StatelessWidget {
             onPressed: c.finishWorkout,
             child: const Text('Training beenden'))
       else
-        OutlinedButton(onPressed: c.cancelWorkout, child: const Text('Abbrechen')),
+        OutlinedButton(onPressed: c.cancelWorkout, child: const Text('Training beenden')),
     ]);
   }
 }
@@ -634,14 +684,5 @@ class _CompareRow extends StatelessWidget {
         ),
       ]),
     );
-  }
-}
-
-extension<T> on List<T> {
-  T? lastWhereOrNull(bool Function(T) f) {
-    for (var i = length - 1; i >= 0; i--) {
-      if (f(this[i])) return this[i];
-    }
-    return null;
   }
 }

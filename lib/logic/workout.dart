@@ -1,7 +1,9 @@
 import '../data/models.dart';
 import 'coach.dart';
 
-enum Phase { set, feedback, recommend, next, summary }
+/// Schritte einer Übung: Aufwärmen → Satz → Satz eintragen (Pause läuft
+/// schon) → Pause → Satz … → Rückmeldung → nächste Übung.
+enum Phase { warmup, set, log, rest, feedback, next, summary }
 
 /// Zustand eines laufenden Trainings. Zeiten werden als Zeitpunkte gespeichert,
 /// nicht als Zähler: So stimmen Gesamtzeit, Satzzeit und Pause auch dann, wenn
@@ -18,6 +20,7 @@ class ActiveWorkout {
     List<SetEntry>? sets,
     this.current = 0,
     this.setStartedAt,
+    this.warmupStartedAt,
     this.restEndsAt,
     this.finishedAt,
     this.recommendation,
@@ -45,6 +48,7 @@ class ActiveWorkout {
   List<SetEntry> sets;
   int current;
   DateTime? setStartedAt;
+  DateTime? warmupStartedAt;
   DateTime? restEndsAt;
   DateTime? finishedAt;
   double? recommendation;
@@ -72,14 +76,17 @@ class ActiveWorkout {
     return r <= 0 ? 0 : (r / 1000).ceil();
   }
 
-  bool resting(DateTime now) => restRemaining(now) > 0;
+  /// Pause läuft: beim Eintragen des Satzes und in der Pause selbst.
+  bool resting(DateTime now) => (phase == Phase.log || phase == Phase.rest) && restRemaining(now) > 0;
 
   int setElapsedSec(DateTime now) {
-    if (setStartedAt == null || resting(now)) return 0;
-    final start = restEndsAt != null && restEndsAt!.isAfter(setStartedAt!) ? restEndsAt! : setStartedAt!;
-    final s = now.difference(start).inSeconds;
+    if (phase != Phase.set || setStartedAt == null) return 0;
+    final s = now.difference(setStartedAt!).inSeconds;
     return s < 0 ? 0 : s;
   }
+
+  int warmupElapsedSec(DateTime now) =>
+      warmupStartedAt == null ? 0 : now.difference(warmupStartedAt!).inSeconds.clamp(0, 1 << 30);
 
   Map<String, dynamic> toJson() => {
         'plan': plan,
@@ -92,6 +99,7 @@ class ActiveWorkout {
         'sets': sets.map((s) => s.toJson()).toList(),
         'current': current,
         'setStartedAt': setStartedAt?.toIso8601String(),
+        'warmupStartedAt': warmupStartedAt?.toIso8601String(),
         'restEndsAt': restEndsAt?.toIso8601String(),
         'finishedAt': finishedAt?.toIso8601String(),
         'recommendation': recommendation,
@@ -112,11 +120,12 @@ class ActiveWorkout {
         place: Place.values.byName(j['place'] as String? ?? 'studio'),
         startedAt: DateTime.parse(j['startedAt'] as String),
         restSec: j['restSec'] as int,
-        phase: Phase.values.byName(j['phase'] as String),
+        phase: Phase.values.asNameMap()[j['phase']] ?? Phase.next,
         exercise: j['exercise'] as String?,
         sets: (j['sets'] as List).map((s) => SetEntry.fromJson(s as Map<String, dynamic>)).toList(),
         current: j['current'] as int,
         setStartedAt: _d(j['setStartedAt']),
+        warmupStartedAt: _d(j['warmupStartedAt']),
         restEndsAt: _d(j['restEndsAt']),
         finishedAt: _d(j['finishedAt']),
         recommendation: (j['recommendation'] as num?)?.toDouble(),

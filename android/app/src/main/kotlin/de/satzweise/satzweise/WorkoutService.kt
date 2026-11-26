@@ -17,6 +17,7 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.os.SystemClock
+import android.os.VibrationAttributes
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
@@ -234,12 +235,12 @@ class WorkoutService : Service() {
         private fun build(context: Context, s: WorkoutState): Notification {
             val big = header(context, R.layout.notif_workout_big, s)
             when (s.status) {
-                "setRunning" -> {
+                "warmup", "setRunning" -> {
                     big.setViewVisibility(R.id.status, View.VISIBLE)
-                    big.setTextViewText(R.id.status_label, "Satz läuft")
+                    big.setTextViewText(R.id.status_label, if (s.status == "warmup") "Aufwärmen" else "Satz läuft")
                     big.setChronometer(R.id.chrono, base(s.setStartMs), null, true)
                     big.setChronometerCountDown(R.id.chrono, false)
-                    big.setTextColor(R.id.chrono, Color.parseColor("#E2322B"))
+                    big.setTextColor(R.id.chrono, Color.parseColor(if (s.status == "warmup") "#1F5FBF" else "#E2322B"))
                     big.setViewVisibility(R.id.progress, View.GONE)
                 }
                 "resting" -> {
@@ -305,9 +306,20 @@ class WorkoutService : Service() {
                 @Suppress("DEPRECATION")
                 context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
             }
-            val pattern = longArrayOf(0, 300, 150, 300)
-            if (Build.VERSION.SDK_INT >= 26) v.vibrate(VibrationEffect.createWaveform(pattern, -1))
-            else @Suppress("DEPRECATION") v.vibrate(pattern, -1)
+            // Kräftig und als Wecker-Vibration, damit sie auch bei „Nicht
+            // stören“ und gesperrtem Bildschirm durchkommt.
+            val pattern = longArrayOf(0, 500, 200, 500, 200, 500)
+            when {
+                Build.VERSION.SDK_INT >= 33 -> v.vibrate(
+                    VibrationEffect.createWaveform(pattern, -1),
+                    VibrationAttributes.createForUsage(VibrationAttributes.USAGE_ALARM),
+                )
+                Build.VERSION.SDK_INT >= 26 -> @Suppress("DEPRECATION") v.vibrate(
+                    VibrationEffect.createWaveform(pattern, -1),
+                    AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ALARM).build(),
+                )
+                else -> @Suppress("DEPRECATION") v.vibrate(pattern, -1)
+            }
             if (sound) {
                 // Benachrichtigungston des Handys; bleibt stumm, wenn das Handy stumm ist.
                 runCatching {

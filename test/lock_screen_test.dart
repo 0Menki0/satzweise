@@ -13,7 +13,7 @@ void main() {
   late DateTime t;
   late AppController c;
   setUp(() async {
-    t = DateTime(2026, 11, 25, 17);
+    t = DateTime(2026, 11, 26, 17);
     c = AppController(store: MemoryStore(), now: () => t);
     await c.load();
   });
@@ -29,61 +29,66 @@ void main() {
     expect(lockContent(c), isNull);
   });
 
-  test('ganzes Training nur über die Knöpfe des Sperrbildschirms', () {
+  test('ganzer Ablauf nur über die Knöpfe des Sperrbildschirms', () {
     c.startWorkout('limbs');
     expect(l().title, 'Womit startest du?');
+    expect(l().wide!.id, 'cancel', reason: 'Training beenden schon vor der ersten Übung');
     runLockAction(c, l().all.firstWhere((a) => a.id.startsWith('pick:')).id);
+
+    expect(l().status, LockStatus.warmup);
+    expect(rows(), [
+      ['startSet'],
+    ]);
+    expect(l().setStart, t, reason: 'Aufwärmzeit läuft ab der Übungswahl');
+    runLockAction(c, 'startSet');
 
     expect(l().status, LockStatus.setRunning);
     expect(l().title, endsWith('Satz 1'));
     expect(rows(), [
-      ['repsMinus', 'repsPlus', 'done'],
-      ['weightMinus', 'weightPlus', 'undo'],
+      ['done'],
     ]);
-    expect(primary(), 'done');
-    expect(l().wide, isNull, reason: 'Übung beenden erst nach dem ersten Satz');
-
-    final before = c.workout!.sets.first.reps;
-    runLockAction(c, 'repsPlus');
-    expect(c.workout!.sets.first.reps, before + 1);
-    runLockAction(c, 'undo');
-    expect(c.workout!.sets.first.reps, before);
-    final w0 = c.workout!.sets.first.weight;
-    runLockAction(c, 'weightPlus');
-    expect(c.workout!.sets.first.weight, greaterThan(w0));
-    runLockAction(c, 'weightMinus');
-
     runLockAction(c, 'done');
-    expect(l().status, LockStatus.resting);
-    expect(l().title, 'Pause · danach Satz 2');
-    expect(rows().first, ['restMinus', 'restPlus', 'skip']);
-    expect(l().restStart, t);
+
+    expect(c.workout!.phase, Phase.log);
+    expect(l().status, LockStatus.resting, reason: 'Pause läuft schon beim Eintragen');
+    expect(rows(), [
+      ['repsMinus', 'repsPlus', 'cont'],
+      ['weightMinus', 'weightPlus', 'end'],
+    ]);
+    expect(primary(), 'cont');
+    final before = c.workout!.currentSet!.reps;
+    runLockAction(c, 'repsPlus');
+    expect(c.workout!.sets.first.reps, before + 1, reason: 'Eintragen ändert den beendeten Satz');
+    runLockAction(c, 'cont');
+
+    expect(c.workout!.phase, Phase.rest);
+    expect(rows(), [
+      ['restMinus', 'restPlus', 'skip'],
+    ]);
     expect(l().restEnd, t.add(const Duration(seconds: 90)));
     runLockAction(c, 'restPlus');
     expect(l().restEnd, t.add(const Duration(seconds: 105)));
+    expect(l().restStart, t);
     runLockAction(c, 'skip');
-    expect(l().status, LockStatus.setRunning);
-    expect(l().wide!.label, 'Übung beenden (1 Sätze)');
+    expect(c.workout!.phase, Phase.set);
     runLockAction(c, 'done');
     runLockAction(c, 'end');
 
     expect(rows(), [
       ['rate:leicht', 'rate:passend', 'rate:schwer'],
     ]);
-    expect(l().wide!.id, 'undo');
-    runLockAction(c, 'rate:leicht');
-    expect(rows().single, ['keep', 'accept']);
-    runLockAction(c, 'accept');
+    runLockAction(c, 'rate:passend');
+    expect(c.workout!.phase, Phase.next);
+    expect(l().text, contains('nächstes Mal'));
     expect(l().wide!.id, 'finish');
     runLockAction(c, 'finish');
-    expect(c.workout!.phase, Phase.summary);
     expect(rows().single, ['undo', 'save']);
     runLockAction(c, 'save');
     expect(c.sessions, hasLength(1));
     expect(lockContent(c), isNull);
   });
 
-  test('höchstens zwei Reihen à drei Knöpfe plus ein breiter in jedem Schritt', () {
+  test('höchstens zwei Reihen à drei Knöpfe in jedem Schritt', () {
     void check() {
       expect(l().rows.length, lessThanOrEqualTo(2));
       for (final r in l().rows) {
@@ -95,9 +100,11 @@ void main() {
     check();
     c.pickExercise('Bankdrücken');
     check();
+    c.startSet();
+    check();
     c.completeSet();
     check();
-    c.endExercise();
+    c.continueSets();
     check();
   });
 

@@ -6,6 +6,9 @@ Krafttraining-App für Android und iOS. Später kommt eine Garmin-Uhren-App (Ven
 
 Grundversion der Handy-App, nach dem klickbaren Entwurf:
 
+
+**Ablauf, gleich auf App, Sperrbildschirm und Uhr:** Ort → Trainingsart → Übung → Aufwärmen → Satz → Satz eintragen (die Pause läuft schon) → Pause → nächster Satz … → Übung beenden → Rückmeldung → nächste Übung. Läuft die Pause ab, beginnt der nächste Satz von selbst, mit den vorbelegten Werten.
+
 - **Start:** Ort wählen (Studio oder daheim) und Trainingsart wählen, also Ganzkörper, Torso / Limbs oder weitere Splits. Der fällige Split-Tag ist markiert.
 - **Training:**
   - Werte sind aus dem letzten Mal vorbelegt (doppelte Progression).

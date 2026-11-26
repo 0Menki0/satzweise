@@ -1,12 +1,15 @@
 // Satzweise für Garmin-Uhren (Venu 2).
 //
-// Die Uhr zeigt das laufende Training, wie es die Handy-App vorgibt, und
-// schickt jeden Knopfdruck ans Handy. Während eines Satzes und in der Pause
-// rechnet sie selbst weiter (Wiederholungen, Gewicht, Pause, Satz fertig),
-// damit sie auch ohne Verbindung bedienbar bleibt. Was nicht ankommt, wird
-// gesammelt und nachgeschickt. Das Training zeichnet sie als
-// Garmin-Aktivität „Krafttraining“ auf; sie geht wie gewohnt an Garmin
-// Connect und weiter an Strava.
+// Ablauf wie in der Handy-App: Ort → Trainingsart → Übung → Aufwärmen →
+// Satz → Satz eintragen (Pause läuft) → Pause → Satz … → Übung beenden →
+// Rückmeldung → Übung …
+//
+// Die Uhr zeigt den Stand vom Handy und schickt jeden Knopfdruck dorthin.
+// Aufwärmen, Satz, Eintragen und Pause rechnet sie selbst weiter, damit sie
+// auch ohne Verbindung bedienbar bleibt; was nicht ankommt, wird gesammelt
+// und nachgeschickt. Das Training zeichnet sie als Garmin-Aktivität
+// „Krafttraining“ auf (ohne GPS); sie geht wie gewohnt an Garmin Connect und
+// weiter an Strava.
 
 import Toybox.Activity;
 import Toybox.ActivityRecording;
@@ -23,7 +26,7 @@ import Toybox.Time;
 import Toybox.Timer;
 import Toybox.WatchUi;
 
-(:debug) const DEMO_MODE = "setRunning";
+(:debug) const DEMO_MODE = "set";
 
 class SatzweiseApp extends Application.AppBase {
     // Letzter Stand vom Handy (oder lokal fortgeschrieben).
@@ -34,12 +37,13 @@ class SatzweiseApp extends Application.AppBase {
     var connected as Boolean = false;
     var session as ActivityRecording.Session? = null;
     var restFinishedAt as Number = 0;
-    // Zusatzdaten je Runde in der Aufzeichnung: Übung, Wiederholungen, Gewicht.
+    // Start ohne Training: gewählter Ort (null = noch nicht gewählt).
+    var pickedPlace as String? = null;
+    // Testbuild mit Beispieldaten: nichts ans Handy senden.
+    var demoMode as Boolean = false;
     private var _fExercise as FitContributor.Field? = null;
     private var _fReps as FitContributor.Field? = null;
     private var _fWeight as FitContributor.Field? = null;
-    // Testbuild mit Beispieldaten: nichts ans Handy senden.
-    var demoMode as Boolean = false;
     private var _timer as Timer.Timer? = null;
 
     function initialize() {
@@ -62,61 +66,6 @@ class SatzweiseApp extends Application.AppBase {
         hello();
     }
 
-    // Begrüßung ans Handy: bittet um den aktuellen Stand. Läuft nicht über
-    // die Warteschlange, damit sie nicht als offener Knopfdruck zählt.
-    function hello() as Void {
-        if (!demoMode) {
-            Communications.transmit({"a" => "hello", "ts" => now()}, null, new HelloListener(self));
-        }
-    }
-
-    // Nur im Testbuild (ohne -r): Beispieltraining für den Simulator.
-    (:debug)
-    function demo() as Void {
-        if (state != null) {
-            return;
-        }
-        demoMode = true;
-        var t = now();
-        var mode = DEMO_MODE;
-        state = {
-            "idle" => false, "title" => "Kniebeuge · Satz 2", "text" => "8 × 85 kg · Gerät 12", "day" => "Limbs · Studio",
-            "status" => "record".equals(mode) ? "setRunning" : mode, "startS" => t - 1452, "setStartS" => t - 34,
-            "restStartS" => t - 18, "restEndS" => t + 72, "sound" => false,
-            "rows" => [], "wide" => null,
-            "set" => {"ex" => "Kniebeuge", "no" => 2, "reps" => 8, "w" => 85.0, "step" => 2.5, "bw" => false, "rest" => 90, "doneCount" => 1}
-        };
-        if ("record".equals(mode)) {
-            // Testaufzeichnung: nach 25 s speichern, um die FIT-Datei zu prüfen.
-            startRecording();
-            new Timer.Timer().start(method(:demoSave), 25000, false);
-        }
-        if ("feedback".equals(mode)) {
-            state = {
-                "idle" => false, "title" => "Kniebeuge: Wie war's?", "text" => "8 / 8 / 7 Wdh. · 85 kg", "day" => "Limbs · Studio",
-                "status" => "none", "startS" => t - 1700,
-                "rows" => [[{"id" => "rate:leicht", "label" => "Leicht"}, {"id" => "rate:passend", "label" => "Passend", "p" => true}, {"id" => "rate:schwer", "label" => "Schwer"}]],
-                "wide" => {"id" => "undo", "label" => "↶ Zurück"}
-            };
-        } else if ("idle".equals(mode)) {
-            state = {
-                "idle" => true, "title" => "Heute dran: Limbs", "text" => "Wo trainierst du?", "day" => "Satzweise",
-                "rows" => [[{"id" => "go:limbs:studio", "label" => "Studio", "p" => true}, {"id" => "go:limbs:home", "label" => "Daheim"}]],
-                "wide" => {"id" => "go:gk:studio", "label" => "Ganzkörper"}
-            };
-        }
-    }
-
-    (:release)
-    function demo() as Void {
-    }
-
-    (:debug)
-    function demoSave() as Void {
-        endRecording(true);
-        System.println("gespeichert");
-    }
-
     function onStop(params as Dictionary?) as Void {
         if (_timer != null) {
             _timer.stop();
@@ -132,7 +81,22 @@ class SatzweiseApp extends Application.AppBase {
         return Time.now().value();
     }
 
+    function phase() as String {
+        var s = state;
+        if (s == null || s["idle"] == true) {
+            return "idle";
+        }
+        var p = s["phase"];
+        return p == null ? "next" : p as String;
+    }
+
     // ------------------------------------------------------------ Handy
+
+    function hello() as Void {
+        if (!demoMode) {
+            Communications.transmit({"a" => "hello", "ts" => now()}, null, new HelloListener(self));
+        }
+    }
 
     function onPhone(msg as Communications.PhoneAppMessage) as Void {
         connected = true;
@@ -140,8 +104,8 @@ class SatzweiseApp extends Application.AppBase {
         if (!(data instanceof Dictionary)) {
             return;
         }
-        // Solange eigene Knopfdrücke unterwegs sind, ist der Stand vom
-        // Handy veraltet; der nächste kommt nach dem Nachschicken.
+        // Solange eigene Knopfdrücke unterwegs sind, ist der Stand vom Handy
+        // veraltet; der nächste kommt nach dem Nachschicken.
         if (queue.size() > 0) {
             flush();
             return;
@@ -158,6 +122,7 @@ class SatzweiseApp extends Application.AppBase {
                 endRecording(ended.equals("saved"));
             }
         } else {
+            pickedPlace = null;
             startRecording();
         }
         WatchUi.requestUpdate();
@@ -190,6 +155,11 @@ class SatzweiseApp extends Application.AppBase {
 
     // Führt einen Knopfdruck aus: lokal sofort sichtbar, dann ans Handy.
     function act(id as String) as Void {
+        if (id.find("place:") == 0) {
+            pickedPlace = id.substring(6, id.length());
+            WatchUi.requestUpdate();
+            return;
+        }
         applyLocal(id);
         transmit(id);
         WatchUi.requestUpdate();
@@ -200,17 +170,44 @@ class SatzweiseApp extends Application.AppBase {
         if (s == null) {
             return;
         }
-        var set = s["set"];
-        var status = s["status"];
         if (id.equals("save")) {
             endRecording(true);
             return;
         }
+        var set = s["set"];
         if (!(set instanceof Dictionary)) {
             return;
         }
+        var p = phase();
         var t = now();
-        if (id.equals("repsMinus") && (set["reps"] as Number) > 0) {
+        if (id.equals("startSet") && (p.equals("warmup") || p.equals("rest"))) {
+            lap(p.equals("warmup") ? "Aufwärmen" : "Pause", 0, 0.0);
+            beginSet(s, t);
+        } else if (id.equals("skip") && p.equals("rest")) {
+            lap("Pause", 0, 0.0);
+            beginSet(s, t);
+        } else if (id.equals("done") && p.equals("set")) {
+            lap(set["ex"] as String, set["reps"] as Number, (set["w"] as Float).toFloat());
+            s["phase"] = "log";
+            s["restStartS"] = t;
+            s["restEndS"] = t + (set["rest"] as Number);
+            set["doneCount"] = (set["doneCount"] as Number) + 1;
+        } else if (id.equals("cont") && p.equals("log")) {
+            planNext(set);
+            if (t < (s["restEndS"] as Number)) {
+                s["phase"] = "rest";
+            } else {
+                lap("Pause", 0, 0.0);
+                beginSet(s, t);
+            }
+        } else if (id.equals("end") && p.equals("log")) {
+            s["phase"] = "feedback";
+            s["title"] = (set["ex"] as String) + ": Wie war's?";
+            s["text"] = "";
+            s["rows"] = [[{"id" => "rate:leicht", "label" => "Leicht"}, {"id" => "rate:passend", "label" => "Passend", "p" => true},
+                {"id" => "rate:schwer", "label" => "Schwer"}]];
+            s["wide"] = null;
+        } else if (id.equals("repsMinus") && (set["reps"] as Number) > 0) {
             set["reps"] = (set["reps"] as Number) - 1;
         } else if (id.equals("repsPlus")) {
             set["reps"] = (set["reps"] as Number) + 1;
@@ -219,22 +216,24 @@ class SatzweiseApp extends Application.AppBase {
             set["w"] = w < 0 ? 0.0 : w;
         } else if (id.equals("weightPlus")) {
             set["w"] = (set["w"] as Float) + (set["step"] as Float);
-        } else if (id.equals("done") && "setRunning".equals(status)) {
-            setLap(set);
-            s["status"] = "resting";
-            s["restStartS"] = t;
-            s["restEndS"] = t + (set["rest"] as Number);
-            set["no"] = (set["no"] as Number) + 1;
-            set["doneCount"] = (set["doneCount"] as Number) + 1;
-        } else if (id.equals("skip") && "resting".equals(status)) {
-            restLap();
-            s["status"] = "setRunning";
-            s["restEndS"] = t;
-            s["setStartS"] = t;
-        } else if (id.equals("restPlus") && "resting".equals(status)) {
+        } else if (id.equals("restPlus") && (p.equals("rest") || p.equals("log"))) {
             s["restEndS"] = (s["restEndS"] as Number) + 15;
-        } else if (id.equals("restMinus") && "resting".equals(status)) {
+        } else if (id.equals("restMinus") && (p.equals("rest") || p.equals("log"))) {
             s["restEndS"] = (s["restEndS"] as Number) - 15;
+        }
+    }
+
+    private function beginSet(s as Dictionary, t as Number) as Void {
+        s["phase"] = "set";
+        s["setStartS"] = t;
+        s["restEndS"] = 0;
+    }
+
+    // Nächster Satz: Gewicht wie eben, Wiederholungen wie beim letzten Mal.
+    private function planNext(set as Dictionary) as Void {
+        set["no"] = (set["no"] as Number) + 1;
+        if (set["nextReps"] != null) {
+            set["reps"] = set["nextReps"];
         }
     }
 
@@ -242,15 +241,20 @@ class SatzweiseApp extends Application.AppBase {
 
     function tick() as Void {
         var s = state;
-        if (s != null && "resting".equals(s["status"]) && now() >= (s["restEndS"] as Number)) {
-            // Pause vorbei: Uhr vibriert, auf Wunsch mit Ton.
-            restLap();
-            s["status"] = "setRunning";
-            s["setStartS"] = s["restEndS"];
+        var p = phase();
+        if (s != null && (p.equals("rest") || p.equals("log")) && (s["restEndS"] as Number) > 0 && now() >= (s["restEndS"] as Number)) {
+            // Pause vorbei: nächster Satz beginnt, auch ohne Eintragen (dann
+            // gelten die vorbelegten Werte). Uhr vibriert, auf Wunsch mit Ton.
+            var set = s["set"];
+            if (p.equals("log") && set instanceof Dictionary) {
+                planNext(set);
+            }
+            lap("Pause", 0, 0.0);
+            beginSet(s, s["restEndS"] as Number);
             restFinishedAt = now();
             if (Attention has :vibrate) {
-                Attention.vibrate([new Attention.VibeProfile(100, 400), new Attention.VibeProfile(0, 150),
-                    new Attention.VibeProfile(100, 400)] as Array<Attention.VibeProfile>);
+                Attention.vibrate([new Attention.VibeProfile(100, 500), new Attention.VibeProfile(0, 200),
+                    new Attention.VibeProfile(100, 500)] as Array<Attention.VibeProfile>);
             }
             if (s["sound"] == true && Attention has :playTone) {
                 Attention.playTone(Attention.TONE_ALARM);
@@ -274,31 +278,18 @@ class SatzweiseApp extends Application.AppBase {
         }
     }
 
-    // Satz abgeschlossen: eigene Runde mit Übung, Wiederholungen und Gewicht.
-    function setLap(set as Dictionary) as Void {
+    // Eine Runde abschließen: Aufwärmen, Satz (mit Übung, Wiederholungen,
+    // Gewicht) oder Pause – wie beim eingebauten Krafttraining.
+    function lap(name as String, reps as Number, weight as Float) as Void {
         if (session == null) {
             return;
         }
         if (_fExercise != null) {
-            var ex = set["ex"] as String;
-            _fExercise.setData(ex.length() > 31 ? ex.substring(0, 31) : ex);
-            _fReps.setData(set["reps"] as Number);
-            _fWeight.setData((set["w"] as Float).toFloat());
+            _fExercise.setData(name.length() > 31 ? name.substring(0, 31) : name);
+            _fReps.setData(reps);
+            _fWeight.setData(weight);
         }
         session.addLap();
-        if (_fExercise != null) {
-            _fExercise.setData("Pause");
-            _fReps.setData(0);
-            _fWeight.setData(0.0);
-        }
-    }
-
-    // Pause vorbei: auch die Pause ist eine eigene Runde, wie bei Garmins
-    // eingebautem Krafttraining.
-    function restLap() as Void {
-        if (session != null) {
-            session.addLap();
-        }
     }
 
     function startRecording() as Void {
@@ -345,6 +336,51 @@ class SatzweiseApp extends Application.AppBase {
     function heartRate() as Number? {
         var info = Activity.getActivityInfo();
         return info != null ? info.currentHeartRate : null;
+    }
+
+    // ------------------------------------------------------------ Testbuild
+
+    // Nur im Testbuild (ohne -r): Beispieldaten für den Simulator.
+    (:debug)
+    function demo() as Void {
+        demoMode = true;
+        var t = now();
+        var mode = DEMO_MODE;
+        var set = {"ex" => "Kniebeuge", "no" => 1, "reps" => 8, "w" => 85.0, "step" => 2.5, "bw" => false, "rest" => 90,
+            "doneCount" => 0, "machine" => "12", "nextReps" => 8};
+        if (mode.equals("idle") || mode.equals("idle2")) {
+            state = {"idle" => true, "day" => "Satzweise", "place" => "studio",
+                "days" => [{"id" => "limbs", "label" => "Limbs · dran", "p" => true}, {"id" => "torso", "label" => "Torso"},
+                    {"id" => "gk", "label" => "Ganzkörper"}]};
+            if (mode.equals("idle2")) {
+                pickedPlace = "studio";
+            }
+            return;
+        }
+        if (mode.equals("next") || mode.equals("feedback")) {
+            state = {"idle" => false, "phase" => mode, "day" => "Limbs · Studio", "startS" => t - 60,
+                "title" => mode.equals("next") ? "Womit startest du?" : "Kniebeuge: Wie war's?",
+                "text" => "",
+                "rows" => mode.equals("next")
+                    ? [[{"id" => "pick:Kniebeuge", "label" => "Kniebeuge", "p" => true}, {"id" => "pick:Rumänisches Kreuzheben", "label" => "Rumän. Kreuzheben"}],
+                        [{"id" => "pick:Beinpresse", "label" => "Beinpresse"}, {"id" => "undo", "label" => "Zurück"}]]
+                    : [[{"id" => "rate:leicht", "label" => "Leicht"}, {"id" => "rate:passend", "label" => "Passend", "p" => true}, {"id" => "rate:schwer", "label" => "Schwer"}]],
+                "wide" => mode.equals("next") ? {"id" => "cancel", "label" => "Training beenden"} : null};
+            return;
+        }
+        if (mode.equals("log") || mode.equals("rest")) {
+            set["doneCount"] = 1;
+        }
+        if (mode.equals("rest")) {
+            set["no"] = 2;
+        }
+        state = {"idle" => false, "phase" => mode, "day" => "Limbs · Studio", "startS" => t - 242,
+            "warmupS" => t - 134, "setStartS" => t - 42, "restStartS" => t - 6, "restEndS" => t + 84,
+            "sound" => false, "rows" => [], "wide" => null, "set" => set};
+    }
+
+    (:release)
+    function demo() as Void {
     }
 }
 

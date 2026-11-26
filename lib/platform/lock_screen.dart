@@ -19,11 +19,8 @@ class LockAction {
   Map<String, Object> toMap() => {'id': id, 'label': label, 'primary': primary};
 }
 
-enum LockStatus { none, setRunning, resting }
+enum LockStatus { none, warmup, setRunning, resting }
 
-/// Inhalt der Trainings-Benachrichtigung: eine normale Android-Benachrichtigung
-/// mit bis zu zwei Reihen à drei Textknöpfen und einem breiten Knopf darunter.
-/// Eingeklappt zeigt sie nur die erste Reihe.
 class LockContent {
   const LockContent({
     required this.title,
@@ -69,91 +66,79 @@ class LockContent {
 }
 
 const _undo = LockAction('undo', '↶ Zurück');
-const _end = LockAction('end', 'Übung beenden');
 
 LockContent? lockContent(AppController c) {
   final w = c.workout;
   if (w == null) return null;
-  final now = c.now, day = dayById(w.day).name;
-  final dayLabelText = '$day · ${w.place.label}';
+  final now = c.now, day = '${dayById(w.day).name} · ${w.place.label}';
   LockContent simple(String title, String text, List<List<LockAction>> rows, {LockAction? wide}) => LockContent(
-      title: title, text: text, dayName: dayLabelText, start: w.startedAt, rows: rows, wide: wide, sound: c.settings.restSound);
+      title: title, text: text, dayName: day, start: w.startedAt, rows: rows, wide: wide, sound: c.settings.restSound);
+  final e = w.exercise == null ? null : c.exercise(w.exercise!);
+  final s = w.currentSet;
+  String label(SetEntry x) => '${setLabel(e, x.reps, x.weight)}${w.machine.isEmpty ? '' : ' · Gerät ${w.machine}'}';
+  final n = w.current + 1;
+  LockContent timed(String title, String text, LockStatus st, List<List<LockAction>> rows, {LockAction? wide}) => LockContent(
+        title: title,
+        text: text,
+        dayName: day,
+        start: w.startedAt,
+        status: st,
+        setStart: st == LockStatus.warmup ? w.warmupStartedAt : w.setStartedAt,
+        restStart: w.restEndsAt?.subtract(Duration(seconds: w.restSec)),
+        restEnd: w.restEndsAt,
+        sound: c.settings.restSound,
+        rows: rows,
+        wide: wide,
+      );
 
   switch (w.phase) {
-    case Phase.set:
-      final s = w.currentSet!;
-      final e = c.exercise(w.exercise!);
-      final step = fmtKg(e.step);
-      final setText = '${setLabel(e, s.reps, s.weight)}${w.machine.isEmpty ? '' : ' · Gerät ${w.machine}'}';
-      final n = w.current + 1;
-      if (w.resting(now)) {
-        return LockContent(
-          title: 'Pause · danach Satz $n',
-          text: '${w.exercise}: $setText',
-          dayName: dayLabelText,
-          start: w.startedAt,
-          status: LockStatus.resting,
-          restStart: w.restEndsAt!.subtract(Duration(seconds: w.restSec)),
-          restEnd: w.restEndsAt,
-          sound: c.settings.restSound,
-          rows: const [
-            [LockAction('restMinus', '−15 s'), LockAction('restPlus', '+15 s'), LockAction('skip', 'Weiter', primary: true)],
-            [LockAction('repsMinus', '− Wdh.'), LockAction('repsPlus', '+ Wdh.'), _undo],
-          ],
-          wide: _end,
-        );
-      }
-      final setStart = w.restEndsAt != null && w.restEndsAt!.isAfter(w.setStartedAt!) ? w.restEndsAt! : w.setStartedAt!;
-      return LockContent(
-        title: '${w.exercise} · Satz $n',
-        text: setText,
-        dayName: dayLabelText,
-        start: w.startedAt,
-        status: LockStatus.setRunning,
-        setStart: setStart,
-        sound: c.settings.restSound,
-        rows: [
-          const [LockAction('repsMinus', '− Wdh.'), LockAction('repsPlus', '+ Wdh.'), LockAction('done', 'Satz fertig', primary: true)],
-          [LockAction('weightMinus', '− $step kg'), LockAction('weightPlus', '+ $step kg'), _undo],
-        ],
-        wide: w.doneSets.isEmpty ? null : LockAction('end', 'Übung beenden (${w.doneSets.length} Sätze)'),
-      );
-    case Phase.feedback:
-      final done = w.sets.where((s) => s.done);
-      return simple('${w.exercise}: Wie war\'s?',
-          '${done.map((s) => s.reps).join(' / ')} Wdh. · ${weightText(c.tryExercise(w.exercise!), done.first.weight)}', [
-        [for (final r in Rating.values) LockAction('rate:${r.name}', r.label, primary: r == Rating.passend)],
+    case Phase.warmup:
+      return timed('${w.exercise} · Aufwärmen', '1. Satz: ${label(s!)}', LockStatus.warmup, const [
+        [LockAction('startSet', 'Satz starten', primary: true)],
       ], wide: _undo);
-    case Phase.recommend:
-      final keep = w.sets.where((s) => s.done).map((s) => s.weight).reduce((a, b) => a > b ? a : b);
-      final rec = w.recommendation!;
-      return simple('Nächstes Mal ${w.exercise}', w.recommendationReason ?? '', [
-        [
-          if (rec != keep) LockAction('keep', '${fmtKg(keep)} kg lassen'),
-          LockAction('accept', rec == keep ? 'Ok' : '${fmtKg(rec)} kg ok', primary: true),
-        ],
+    case Phase.set:
+      return timed('${w.exercise} · Satz $n', 'geplant ${label(s!)}', LockStatus.setRunning, const [
+        [LockAction('done', 'Satz beenden', primary: true)],
+      ], wide: _undo);
+    case Phase.log:
+      final step = fmtKg(e!.step);
+      return timed('Wie lief Satz $n? ${setLabel(e, s!.reps, s.weight)}', w.exercise!, LockStatus.resting, [
+        const [LockAction('repsMinus', '− Wdh.'), LockAction('repsPlus', '+ Wdh.'), LockAction('cont', 'Weiter', primary: true)],
+        [LockAction('weightMinus', '− $step kg'), LockAction('weightPlus', '+ $step kg'), const LockAction('end', 'Übung beenden')],
+      ]);
+    case Phase.rest:
+      return timed('Pause · danach Satz $n', '${w.exercise}: ${label(s!)}', LockStatus.resting, const [
+        [LockAction('restMinus', '−15 s'), LockAction('restPlus', '+15 s'), LockAction('skip', 'Pause beenden', primary: true)],
+      ], wide: _undo);
+    case Phase.feedback:
+      final done = w.sets.where((x) => x.done);
+      return simple('${w.exercise}: Wie war\'s?', '${done.map((x) => x.reps).join(' / ')} Wdh. · ${weightText(e, done.first.weight)}', [
+        [for (final r in Rating.values) LockAction('rate:${r.name}', r.label, primary: r == Rating.passend)],
       ], wide: _undo);
     case Phase.next:
       final sg = c.suggestions(max: 3);
       final picks = [for (var i = 0; i < sg.length; i++) LockAction('pick:${sg[i].exercise}', sg[i].exercise, primary: i == 0)];
       return simple(
         w.items.isEmpty ? 'Womit startest du?' : 'Als Nächstes?',
-        sg.isEmpty ? 'Übung in der App wählen' : sg.first.reason,
+        w.items.isNotEmpty && w.recommendationReason != null
+            ? w.recommendationReason!
+            : (sg.isEmpty ? 'Übung in der App wählen' : sg.first.reason),
         [
           [...picks.take(2), if (picks.length < 3) _undo],
           if (picks.length >= 3) [picks[2], _undo],
         ],
-        wide: w.items.isEmpty ? null : const LockAction('finish', 'Training beenden'),
+        wide: LockAction(w.items.isEmpty ? 'cancel' : 'finish', 'Training beenden'),
       );
     case Phase.summary:
       final m = c.summary();
-      return simple('$day fertig: ${m.title}', '${clock(w.elapsedSec(now))} · ${kg(m.volume)} · ${m.setCount} Sätze', const [
-        [_undo, LockAction('save', 'Speichern', primary: true)],
-      ]);
+      return simple('${dayById(w.day).name} fertig: ${m.title}', '${clock(w.elapsedSec(now))} · ${kg(m.volume)} · ${m.setCount} Sätze',
+          const [
+            [_undo, LockAction('save', 'Speichern', primary: true)],
+          ]);
   }
 }
 
-/// Führt einen Knopfdruck vom Sperrbildschirm aus.
+/// Führt einen Knopfdruck vom Sperrbildschirm (oder der Uhr) aus.
 void runLockAction(AppController c, String id) {
   final w = c.workout;
   if (id == 'undo') return c.undo();
@@ -168,8 +153,12 @@ void runLockAction(AppController c, String id) {
   }
   if (w == null) return;
   switch (id) {
+    case 'startSet':
+      c.startSet();
     case 'done':
       c.completeSet();
+    case 'cont':
+      c.continueSets();
     case 'repsMinus':
       c.changeReps(-1);
     case 'repsPlus':
@@ -186,12 +175,10 @@ void runLockAction(AppController c, String id) {
       c.skipRest();
     case 'end':
       c.endExercise();
-    case 'accept':
-      c.finishExercise(accept: true);
-    case 'keep':
-      c.finishExercise(accept: false);
     case 'finish':
       c.finishWorkout();
+    case 'cancel':
+      c.cancelWorkout();
     case 'save':
       c.saveWorkout();
     default:

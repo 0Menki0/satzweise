@@ -39,7 +39,6 @@ class AppController extends ChangeNotifier {
 
   final List<_Snapshot> _undo = [];
   Timer? _ticker;
-  bool _wasResting = false;
 
   /// Wird aufgerufen, wenn eine Pause abläuft (Vibration).
   VoidCallback? onRestFinished;
@@ -76,7 +75,6 @@ class AppController extends ChangeNotifier {
       workout = w == null ? null : ActiveWorkout.fromJson(w as Map<String, dynamic>);
     }
     loaded = true;
-    _wasResting = workout?.resting(now) ?? false;
     _startTicker();
     notifyListeners();
   }
@@ -123,12 +121,18 @@ class AppController extends ChangeNotifier {
   void tick() {
     final w = workout;
     if (w == null || w.phase == Phase.summary) return;
-    final resting = w.resting(now);
-    if (_wasResting && !resting) {
+    // Pause abgelaufen: der nächste Satz beginnt von selbst, auch wenn der
+    // letzte Satz noch nicht eingetragen wurde (dann gelten die vorbelegten
+    // Werte).
+    if ((w.phase == Phase.log || w.phase == Phase.rest) && w.restEndsAt != null && !now.isBefore(w.restEndsAt!)) {
+      final at = w.restEndsAt!;
+      if (w.phase == Phase.log) _planNext(w);
+      _beginSet(w, at);
       restFinishedAt = now;
       onRestFinished?.call();
+      _changed();
+      return;
     }
-    _wasResting = resting;
     notifyListeners();
   }
 
@@ -183,7 +187,6 @@ class AppController extends ChangeNotifier {
       if (s.nextWeights.containsKey(e.name)) e.nextWeight = s.nextWeights[e.name];
     }
     sessions.removeWhere((x) => !s.sessionIds.contains(x.id));
-    _wasResting = workout?.resting(now) ?? false;
     _changed();
   }
 
@@ -204,6 +207,7 @@ class AppController extends ChangeNotifier {
     _changed();
   }
 
+  /// Übung gewählt: Aufwärmen beginnt, der erste Satz ist geplant.
   void pickExercise(String name) {
     final w = workout!;
     final e = exercise(name);
@@ -214,8 +218,9 @@ class AppController extends ChangeNotifier {
       ..sets = [firstSet(e, last)]
       ..lastReps = repPlan(e, last)
       ..current = 0
-      ..phase = Phase.set
-      ..setStartedAt = now
+      ..phase = Phase.warmup
+      ..warmupStartedAt = now
+      ..setStartedAt = null
       ..restEndsAt = null
       ..machine = e.machine
       ..note = e.note
@@ -225,6 +230,23 @@ class AppController extends ChangeNotifier {
     _changed();
   }
 
+  /// Satz beginnt: nach dem Aufwärmen oder vorzeitig aus der Pause.
+  void startSet() {
+    final w = workout!;
+    if (w.phase != Phase.warmup && w.phase != Phase.rest) return;
+    _snap(w.phase == Phase.warmup ? 'Satz gestartet' : 'Pause beendet');
+    _beginSet(w, now);
+    _changed();
+  }
+
+  void _beginSet(ActiveWorkout w, DateTime at) {
+    w
+      ..phase = Phase.set
+      ..setStartedAt = at
+      ..restEndsAt = null;
+  }
+
+  /// Wiederholungen ändern: im Plan vor dem Satz oder beim Eintragen danach.
   void changeReps(int delta) {
     final s = workout?.currentSet;
     if (s == null || s.reps + delta < 0) return;
@@ -233,7 +255,7 @@ class AppController extends ChangeNotifier {
     _changed();
   }
 
-  /// Ändert das Gewicht des aktuellen Satzes; folgende Sätze übernehmen es.
+  /// Gewicht ändern; folgende Sätze übernehmen es.
   void changeWeight(int direction) {
     final w = workout!;
     final s = w.currentSet;
@@ -257,25 +279,38 @@ class AppController extends ChangeNotifier {
     _changed();
   }
 
+  /// Satz beenden: die Pause beginnt sofort, Wiederholungen und Gewicht
+  /// werden jetzt eingetragen (vorbelegt mit dem Plan).
   void completeSet() {
     final w = workout!;
     final s = w.currentSet;
-    if (s == null) return;
-    _snap('Satz ${w.current + 1} abgehakt');
+    if (s == null || w.phase != Phase.set) return;
+    _snap('Satz ${w.current + 1} beendet');
     s
       ..done = true
       ..durationSec = w.setElapsedSec(now)
       ..finishedAt = now;
-    // Es gibt keine feste Satzzahl: nach jedem Satz folgen Pause und ein
-    // neuer Satz, bis die Übung beendet wird.
-    w.sets.add(nextSet(w.lastReps, w.current + 1, s));
     w
-      ..current = w.current + 1
-      ..restEndsAt = now.add(Duration(seconds: w.restSec))
-      ..setStartedAt = now;
-    _wasResting = true;
+      ..phase = Phase.log
+      ..restEndsAt = now.add(Duration(seconds: w.restSec));
     restFinishedAt = null;
     _changed();
+  }
+
+  /// Nach dem Eintragen: weiter mit einem neuen Satz (Pause läuft weiter).
+  void continueSets() {
+    final w = workout!;
+    if (w.phase != Phase.log) return;
+    _snap('Satz ${w.current + 1} eingetragen');
+    _planNext(w);
+    w.phase = w.resting(now) ? Phase.rest : Phase.set;
+    if (w.phase == Phase.set) _beginSet(w, now);
+    _changed();
+  }
+
+  void _planNext(ActiveWorkout w) {
+    w.sets.add(nextSet(w.lastReps, w.current + 1, w.sets[w.current]));
+    w.current++;
   }
 
   void endExercise() {
@@ -301,14 +336,8 @@ class AppController extends ChangeNotifier {
     _changed();
   }
 
-  void skipRest() {
-    final w = workout!;
-    if (!w.resting(now)) return;
-    _snap('Pause übersprungen');
-    w.restEndsAt = now;
-    _wasResting = false;
-    _changed();
-  }
+  /// „Pause beenden“.
+  void skipRest() => startSet();
 
   void setMachine(String machine, String note) {
     workout!
@@ -325,27 +354,21 @@ class AppController extends ChangeNotifier {
     _changed();
   }
 
+  /// Rückmeldung nach der Übung: legt das Gewicht fürs nächste Mal fest und
+  /// geht zurück zur Übungswahl.
   void rate(Rating r) {
     final w = workout!;
+    if (w.phase != Phase.feedback) return;
     final rec = recommend(exercise(w.exercise!), w.sets, r);
+    final done = w.sets.where((s) => s.done).map((s) => s.copy()).toList();
+    final log = ExerciseLog(exercise: w.exercise!, sets: done, machine: w.machine, note: w.note, rating: r)
+      ..nextWeight = rec.weight;
     _snap('Rückmeldung „${r.label}“');
+    exercise(w.exercise!).nextWeight = rec.weight;
     w
       ..rating = r
       ..recommendation = rec.weight
-      ..recommendationReason = rec.reason
-      ..phase = Phase.recommend;
-    _changed();
-  }
-
-  /// [accept] = Empfehlung übernehmen, sonst Gewicht so lassen.
-  void finishExercise({required bool accept}) {
-    final w = workout!;
-    final done = w.sets.where((s) => s.done).map((s) => s.copy()).toList();
-    final log = ExerciseLog(exercise: w.exercise!, sets: done, machine: w.machine, note: w.note, rating: w.rating);
-    _snap(accept ? 'Gewicht übernommen' : 'Gewicht gelassen');
-    log.nextWeight = accept ? w.recommendation : log.topSet.weight;
-    exercise(w.exercise!).nextWeight = log.nextWeight;
-    w
+      ..recommendationReason = '${w.exercise}: nächstes Mal ${weightText(exercise(w.exercise!), rec.weight)}. ${rec.reason}'
       ..items.add(log)
       ..phase = Phase.next;
     _changed();

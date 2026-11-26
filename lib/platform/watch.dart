@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter/services.dart';
 
+import '../data/catalog.dart';
 import '../data/models.dart';
 import '../logic/coach.dart';
 import '../logic/controller.dart';
@@ -16,59 +17,64 @@ String _watchLabel(String s) => s.replaceAll('−', '-').replaceAll('↶ ', '');
 Map<String, Object> _btn(LockAction a) => {'id': a.id, 'label': _watchLabel(a.label), if (a.primary) 'p': true};
 
 /// Was die Garmin-Uhr zeigt. Zeiten in Sekunden seit 1970; die Uhr zählt
-/// Gesamtzeit, Satzzeit und Pause selbst. Für Satz und Pause bekommt sie die
-/// Zahlen, um auch ohne Verbindung weiterrechnen zu können; für die übrigen
-/// Schritte die Knöpfe wie auf dem Sperrbildschirm.
+/// Gesamtzeit, Aufwärmen, Satz und Pause selbst. Für Aufwärmen, Satz,
+/// Eintragen und Pause bekommt sie die Zahlen und baut ihre Knöpfe selbst,
+/// damit sie auch ohne Verbindung weiterlaufen kann; für die übrigen Schritte
+/// die Knöpfe wie auf dem Sperrbildschirm.
 Map<String, Object?> watchContent(AppController c) {
   final w = c.workout;
   if (w == null) {
     final last = c.sessions.lastOrNull;
     final plan = last?.plan ?? 'tl';
     final due = nextDay(c.sessions, plan);
-    final place = last?.place ?? Place.studio;
+    final days = [
+      due,
+      for (final d in planById(plan).days)
+        if (d.id != due.id) d,
+      if (plan != 'gk') dayById('gk') else ...planById('tl').days,
+    ];
     return {
       'idle': true,
-      'title': 'Heute dran: ${due.name}',
-      'text': 'Wo trainierst du?',
       'day': 'Satzweise',
-      'rows': [
-        [
-          {'id': 'go:${due.id}:studio', 'label': 'Studio', if (place == Place.studio) 'p': true},
-          {'id': 'go:${due.id}:home', 'label': 'Daheim', if (place == Place.home) 'p': true},
-        ],
+      'place': (last?.place ?? Place.studio).name,
+      'days': [
+        for (final d in days) {'id': d.id, 'label': d.id == due.id ? '${d.name} · dran' : d.name, if (d.id == due.id) 'p': true},
       ],
-      if (due.id != 'gk') 'wide': {'id': 'go:gk:${place.name}', 'label': 'Ganzkörper'},
       'ended': c.lastEnd,
     };
   }
   final l = lockContent(c)!;
-  final set = w.phase == Phase.set ? w.currentSet : null;
+  final s = w.currentSet;
   final e = w.exercise == null ? null : c.tryExercise(w.exercise!);
+  final inSet = const {Phase.warmup, Phase.set, Phase.log, Phase.rest}.contains(w.phase);
   return {
     'idle': false,
+    'phase': w.phase.name,
     'title': _watchLabel(l.title),
     'text': _watchLabel(l.text),
     'day': l.dayName,
-    'status': l.status.name,
     'startS': _s(w.startedAt),
-    'setStartS': _s(l.setStart),
+    'warmupS': _s(w.warmupStartedAt),
+    'setStartS': _s(w.setStartedAt),
     'restStartS': _s(l.restStart),
-    'restEndS': _s(l.restEnd),
+    'restEndS': _s(w.restEndsAt),
     'sound': c.settings.restSound,
     'rows': [
       for (final r in l.rows) [for (final a in r) _btn(a)],
     ],
     'wide': l.wide == null ? null : _btn(l.wide!),
-    if (set != null && e != null)
+    if (inSet && s != null && e != null)
       'set': {
         'ex': e.name,
         'no': w.current + 1,
-        'reps': set.reps,
-        'w': set.weight,
+        'reps': s.reps,
+        'w': s.weight,
         'step': e.step,
         'bw': e.bodyweight,
         'rest': w.restSec,
         'doneCount': w.doneSets.length,
+        'machine': w.machine,
+        'nextReps': w.lastReps.length > w.current + 1 ? w.lastReps[w.current + 1] : s.reps,
       },
   };
 }

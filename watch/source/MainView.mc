@@ -21,10 +21,8 @@ class Hit {
     }
 }
 
-// Große Knöpfe: im Satz und in der Pause zwei Knöpfe plus ein großer
-// Hauptknopf; alles Weitere (Gewicht, Übung beenden, Zurück) auf einer
-// zweiten Seite („mehr“ oder nach oben wischen). Die übrigen Schritte
-// zeigen ihre Knöpfe untereinander in voller Breite.
+// Ein Bildschirm je Schritt, jeweils mit einer großen roten Hauptaktion
+// (auch obere Taste). Untere Taste = Zurück.
 class MainView extends WatchUi.View {
     const RED = 0xE2322B;
     const BLUE = 0x5B93EA;
@@ -36,10 +34,6 @@ class MainView extends WatchUi.View {
     private var _app as SatzweiseApp;
     var hits as Array<Hit> = [] as Array<Hit>;
     var primary as String? = null;
-
-    // 0 = Hauptseite, 1 = „mehr“.
-    var page as Number = 0;
-    private var _lastStatus as String = "";
 
     // Kurzes Aufleuchten des gedrückten Knopfs.
     var pressedId as String? = null;
@@ -101,24 +95,16 @@ class MainView extends WatchUi.View {
 
         var s = _app.state;
         if (s == null) {
-            dc.drawText(cx, h * 0.4, Graphics.FONT_MEDIUM, "Satzweise", Graphics.TEXT_JUSTIFY_CENTER | Graphics.TEXT_JUSTIFY_VCENTER);
-            dc.setColor(MUTE, Graphics.COLOR_TRANSPARENT);
-            dc.drawText(cx, h * 0.56, Graphics.FONT_TINY, "Öffne Satzweise\nauf dem Handy", Graphics.TEXT_JUSTIFY_CENTER | Graphics.TEXT_JUSTIFY_VCENTER);
+            text(dc, cx, h * 0.4, Graphics.FONT_MEDIUM, "Satzweise", Graphics.COLOR_WHITE);
+            text(dc, cx, h * 0.56, Graphics.FONT_TINY, "Öffne Satzweise\nauf dem Handy", MUTE);
             return;
         }
         var now = SatzweiseApp.now();
-        var status = s["status"] as String?;
-        var idle = s["idle"] == true;
-        var statusKey = idle ? "idle" : (status == null ? "none" : status) + (s["title"] as String);
-        if (!statusKey.equals(_lastStatus)) {
-            // Neuer Schritt: zurück auf die Hauptseite.
-            page = 0;
-            _lastStatus = statusKey;
-        }
+        var p = _app.phase();
 
-        // Kopf: Tag, Gesamtzeit, Puls bzw. Verbindung.
+        // Kopf: Tag, Gesamtzeit; darunter Senden, offline oder Puls.
         var head = s["day"] != null ? s["day"] as String : "Satzweise";
-        if (!idle && s["startS"] != null) {
+        if (!p.equals("idle") && s["startS"] != null) {
             head = head + " · " + clock(now - (s["startS"] as Number));
         }
         dc.setColor(MUTE, Graphics.COLOR_TRANSPARENT);
@@ -128,7 +114,7 @@ class MainView extends WatchUi.View {
             line2 = "sendet …";
         } else if (_app.queue.size() > 0 && !_app.connected) {
             line2 = "offline, " + _app.queue.size().format("%d") + " offen";
-        } else {
+        } else if (!p.equals("idle")) {
             var hr = _app.heartRate();
             if (hr != null) {
                 line2 = "Puls " + hr.format("%d");
@@ -140,74 +126,84 @@ class MainView extends WatchUi.View {
         }
 
         var set = s["set"] as Dictionary?;
-        if (set != null && ("setRunning".equals(status) || "resting".equals(status))) {
-            if (page == 1) {
-                drawMore(dc, s, set, w, h);
-            } else if ("setRunning".equals(status)) {
-                drawSet(dc, s, set, now, w, h);
-            } else {
-                drawRest(dc, s, set, now, w, h);
-            }
+        if (p.equals("idle")) {
+            drawStart(dc, s, w, h);
+        } else if (set != null && p.equals("warmup")) {
+            drawWarmup(dc, s, set, now, w, h);
+        } else if (set != null && p.equals("set")) {
+            drawSet(dc, s, set, now, w, h);
+        } else if (set != null && p.equals("log")) {
+            drawLog(dc, s, set, now, w, h);
+        } else if (set != null && p.equals("rest")) {
+            drawRest(dc, s, set, now, w, h);
+        } else {
+            drawList(dc, s, w, h);
+        }
+    }
+
+    private function text(dc as Graphics.Dc, x as Numeric, y as Numeric, font as Graphics.FontType, t as String, color as Number) as Void {
+        dc.setColor(color, Graphics.COLOR_TRANSPARENT);
+        dc.drawText(x, y, font, t, Graphics.TEXT_JUSTIFY_CENTER | Graphics.TEXT_JUSTIFY_VCENTER);
+    }
+
+    // 1 Ort, 2 Trainingsart.
+    private function drawStart(dc as Graphics.Dc, s as Dictionary, w as Number, h as Number) as Void {
+        var cx = w / 2;
+        var picked = _app.pickedPlace;
+        if (picked == null) {
+            text(dc, cx, 112, Graphics.FONT_SMALL, "Wo trainierst du?", Graphics.COLOR_WHITE);
+            var usual = s["place"] != null ? s["place"] as String : "studio";
+            var studio = {"id" => "place:studio", "label" => "Studio", "p" => usual.equals("studio")};
+            var home = {"id" => "place:home", "label" => "Daheim", "p" => usual.equals("home")};
+            button(dc, studio, (w - 300) / 2, 160, 300, 66, w, h, Graphics.FONT_MEDIUM);
+            button(dc, home, (w - 300) / 2, 238, 300, 66, w, h, Graphics.FONT_MEDIUM);
             return;
         }
-
-        // Übrige Schritte: Titel, Text, Knöpfe untereinander.
-        dc.setColor(Graphics.COLOR_WHITE, Graphics.COLOR_TRANSPARENT);
-        dc.drawText(cx, 100, Graphics.FONT_SMALL, s["title"] as String, Graphics.TEXT_JUSTIFY_CENTER | Graphics.TEXT_JUSTIFY_VCENTER);
-        if (s["text"] != null) {
-            dc.setColor(MUTE, Graphics.COLOR_TRANSPARENT);
-            dc.drawText(cx, 138, Graphics.FONT_XTINY, s["text"] as String, Graphics.TEXT_JUSTIFY_CENTER | Graphics.TEXT_JUSTIFY_VCENTER);
+        text(dc, cx, 100, Graphics.FONT_XTINY, picked.equals("home") ? "Daheim" : "Studio", MUTE);
+        text(dc, cx, 128, Graphics.FONT_SMALL, "Was trainierst du?", Graphics.COLOR_WHITE);
+        var days = s["days"] as Array?;
+        if (days == null) {
+            return;
         }
-        var list = [] as Array<Dictionary>;
-        var rows = s["rows"] as Array?;
-        if (rows != null) {
-            for (var r = 0; r < rows.size(); r++) {
-                var row = rows[r] as Array;
-                for (var i = 0; i < row.size(); i++) {
-                    list.add(row[i] as Dictionary);
-                }
-            }
-        }
-        if (s["wide"] != null) {
-            list.add(s["wide"] as Dictionary);
-        }
-        var n = list.size() > 4 ? 4 : list.size();
-        var bh = n <= 3 ? 60 : 48;
-        var gap = n <= 3 ? 8 : 6;
-        var y = 168;
-        for (var i = 0; i < n; i++) {
-            button(dc, list[i], (w - 300) / 2, y, 300, bh, w, h, Graphics.FONT_SMALL);
-            y += bh + gap;
+        var y = 160;
+        for (var i = 0; i < days.size() && i < 3; i++) {
+            var d = days[i] as Dictionary;
+            button(dc, {"id" => "go:" + (d["id"] as String) + ":" + picked, "label" => d["label"], "p" => d["p"] == true},
+                (w - 300) / 2, y, 300, 60, w, h, Graphics.FONT_SMALL);
+            y += 68;
         }
     }
 
+    // 4 Aufwärmen: Zeit läuft, geplanter erster Satz, „Satz starten“.
+    private function drawWarmup(dc as Graphics.Dc, s as Dictionary, set as Dictionary, now as Number, w as Number, h as Number) as Void {
+        var cx = w / 2;
+        text(dc, cx, 102, Graphics.FONT_SMALL, set["ex"] as String, Graphics.COLOR_WHITE);
+        text(dc, cx, 132, Graphics.FONT_XTINY, "Aufwärmen", MUTE);
+        var start = s["warmupS"] != null ? s["warmupS"] as Number : now;
+        text(dc, cx, 178, Graphics.FONT_NUMBER_MEDIUM, clock(now - start), BLUE);
+        text(dc, cx, 232, Graphics.FONT_XTINY, "1. Satz: " + setText(set), Graphics.COLOR_WHITE);
+        button(dc, {"id" => "startSet", "label" => "Satz starten", "p" => true}, (w - 300) / 2, 268, 300, 72, w, h, Graphics.FONT_MEDIUM);
+    }
+
+    // 5 Satz läuft: Übung, Zeit, Puls (oben), „Satz beenden“.
     private function drawSet(dc as Graphics.Dc, s as Dictionary, set as Dictionary, now as Number, w as Number, h as Number) as Void {
         var cx = w / 2;
-        dc.setColor(Graphics.COLOR_WHITE, Graphics.COLOR_TRANSPARENT);
-        dc.drawText(cx, 94, Graphics.FONT_SMALL, set["ex"] as String, Graphics.TEXT_JUSTIFY_CENTER | Graphics.TEXT_JUSTIFY_VCENTER);
+        text(dc, cx, 106, Graphics.FONT_SMALL, (set["ex"] as String) + " · Satz " + (set["no"] as Number).format("%d"), Graphics.COLOR_WHITE);
         var fresh = now - _app.restFinishedAt < 5;
-        var info = "Satz " + (set["no"] as Number).format("%d");
-        if (s["setStartS"] != null) {
-            info = info + " · " + clock(now - (s["setStartS"] as Number));
-        }
-        dc.setColor(fresh ? GREEN : MUTE, Graphics.COLOR_TRANSPARENT);
-        dc.drawText(cx, 136, Graphics.FONT_XTINY, fresh ? "Pause vorbei · los!" : info, Graphics.TEXT_JUSTIFY_CENTER | Graphics.TEXT_JUSTIFY_VCENTER);
-        dc.setColor(0xFF6A62, Graphics.COLOR_TRANSPARENT);
-        dc.drawText(cx, 178, Graphics.FONT_LARGE, setText(set), Graphics.TEXT_JUSTIFY_CENTER | Graphics.TEXT_JUSTIFY_VCENTER);
-
-        pair(dc, {"id" => "repsMinus", "label" => "- Wdh."}, {"id" => "repsPlus", "label" => "+ Wdh."}, 218, w, h);
-        button(dc, {"id" => "done", "label" => "Satz fertig", "p" => true}, (w - 300) / 2, 292, 300, 68, w, h, Graphics.FONT_MEDIUM);
-        moreLink(dc, "mehr", w, h);
+        text(dc, cx, 138, Graphics.FONT_XTINY, fresh ? "Pause vorbei · los!" : "geplant " + setText(set), fresh ? GREEN : MUTE);
+        var start = s["setStartS"] != null ? s["setStartS"] as Number : now;
+        text(dc, cx, 196, Graphics.FONT_NUMBER_HOT, clock(now - start), 0xFF6A62);
+        button(dc, {"id" => "done", "label" => "Satz beenden", "p" => true}, (w - 300) / 2, 268, 300, 72, w, h, Graphics.FONT_MEDIUM);
     }
 
-    private function drawRest(dc as Graphics.Dc, s as Dictionary, set as Dictionary, now as Number, w as Number, h as Number) as Void {
+    // Ring am Rand: Pause läuft rückwärts.
+    private function ring(dc as Graphics.Dc, s as Dictionary, now as Number, w as Number, h as Number) as Number {
         var cx = w / 2;
         var end = s["restEndS"] as Number;
         var start = s["restStartS"] as Number;
         var total = end - start;
         var left = end - now;
         if (total > 0) {
-            // Ring am Rand läuft rückwärts.
             dc.setPenWidth(10);
             dc.setColor(0x1F2D45, Graphics.COLOR_TRANSPARENT);
             dc.drawCircle(cx, h / 2, cx - 8);
@@ -218,51 +214,77 @@ class MainView extends WatchUi.View {
             }
             dc.setPenWidth(1);
         }
-        dc.setColor(MUTE, Graphics.COLOR_TRANSPARENT);
-        dc.drawText(cx, 96, Graphics.FONT_XTINY, "Pause · danach Satz " + (set["no"] as Number).format("%d"), Graphics.TEXT_JUSTIFY_CENTER | Graphics.TEXT_JUSTIFY_VCENTER);
-        dc.setColor(BLUE, Graphics.COLOR_TRANSPARENT);
-        dc.drawText(cx, 145, Graphics.FONT_NUMBER_MEDIUM, clock(left), Graphics.TEXT_JUSTIFY_CENTER | Graphics.TEXT_JUSTIFY_VCENTER);
-        dc.setColor(Graphics.COLOR_WHITE, Graphics.COLOR_TRANSPARENT);
-        dc.drawText(cx, 192, Graphics.FONT_XTINY, setText(set), Graphics.TEXT_JUSTIFY_CENTER | Graphics.TEXT_JUSTIFY_VCENTER);
-
-        pair(dc, {"id" => "restMinus", "label" => "-15 s"}, {"id" => "restPlus", "label" => "+15 s"}, 218, w, h);
-        button(dc, {"id" => "skip", "label" => "Weiter", "p" => true}, (w - 300) / 2, 292, 300, 68, w, h, Graphics.FONT_MEDIUM);
-        moreLink(dc, "mehr", w, h);
+        return left;
     }
 
-    // Zweite Seite: was seltener gebraucht wird.
-    private function drawMore(dc as Graphics.Dc, s as Dictionary, set as Dictionary, w as Number, h as Number) as Void {
+    // 6 Pause beginnt: Satz eintragen, „Weiter“ oder „Übung beenden“.
+    private function drawLog(dc as Graphics.Dc, s as Dictionary, set as Dictionary, now as Number, w as Number, h as Number) as Void {
         var cx = w / 2;
-        dc.setColor(Graphics.COLOR_WHITE, Graphics.COLOR_TRANSPARENT);
-        dc.drawText(cx, 100, Graphics.FONT_SMALL, setText(set), Graphics.TEXT_JUSTIFY_CENTER | Graphics.TEXT_JUSTIFY_VCENTER);
-        if ("resting".equals(s["status"])) {
-            pair(dc, {"id" => "repsMinus", "label" => "- Wdh."}, {"id" => "repsPlus", "label" => "+ Wdh."}, 130, w, h);
-        } else {
-            var step = kg(set["step"] as Float);
-            pair(dc, {"id" => "weightMinus", "label" => "-" + step + " kg"}, {"id" => "weightPlus", "label" => "+" + step + " kg"}, 130, w, h);
-        }
-        var done = set["doneCount"] as Number;
-        var y = 204;
-        if (done > 0) {
-            button(dc, {"id" => "end", "label" => "Übung beenden (" + done.format("%d") + ")"}, (w - 320) / 2, y, 320, 60, w, h, Graphics.FONT_SMALL);
-            y += 68;
-        }
-        button(dc, {"id" => "undo", "label" => "Zurück"}, (w - 280) / 2, y, 280, 56, w, h, Graphics.FONT_SMALL);
-        moreLink(dc, "schließen", w, h);
+        var left = ring(dc, s, now, w, h);
+        text(dc, cx, 100, Graphics.FONT_XTINY, "Pause " + clock(left), BLUE);
+        text(dc, cx, 126, Graphics.FONT_SMALL, "Wie lief Satz " + (set["no"] as Number).format("%d") + "?", Graphics.COLOR_WHITE);
+        stepper(dc, "repsMinus", "repsPlus", (set["reps"] as Number).format("%d") + " Wdh.", 150, w, h);
+        var wl = set["bw"] == true && (set["w"] as Float) == 0 ? "KG" : kg(set["w"] as Float) + " kg";
+        stepper(dc, "weightMinus", "weightPlus", wl, 206, w, h);
+        button(dc, {"id" => "cont", "label" => "Weiter", "p" => true}, (w - 260) / 2, 264, 260, 56, w, h, Graphics.FONT_MEDIUM);
+        button(dc, {"id" => "end", "label" => "Übung beenden"}, (w - 200) / 2, 328, 200, 42, w, h, Graphics.FONT_XTINY);
     }
 
-    // Zwei große Knöpfe nebeneinander.
-    private function pair(dc as Graphics.Dc, a as Dictionary, b as Dictionary, y as Number, w as Number, h as Number) as Void {
-        var bw = 152;
+    // 7 Pause: nachkorrigieren oder beenden.
+    private function drawRest(dc as Graphics.Dc, s as Dictionary, set as Dictionary, now as Number, w as Number, h as Number) as Void {
+        var cx = w / 2;
+        var left = ring(dc, s, now, w, h);
+        text(dc, cx, 102, Graphics.FONT_XTINY, "danach Satz " + (set["no"] as Number).format("%d") + " · " + setText(set), MUTE);
+        text(dc, cx, 158, Graphics.FONT_NUMBER_HOT, clock(left), BLUE);
+        var bw = 140;
         var gap = 12;
         var x = (w - 2 * bw - gap) / 2;
-        button(dc, a, x, y, bw, 64, w, h, Graphics.FONT_SMALL);
-        button(dc, b, x + bw + gap, y, bw, 64, w, h, Graphics.FONT_SMALL);
+        button(dc, {"id" => "restMinus", "label" => "-15 s"}, x, 210, bw, 56, w, h, Graphics.FONT_SMALL);
+        button(dc, {"id" => "restPlus", "label" => "+15 s"}, x + bw + gap, 210, bw, 56, w, h, Graphics.FONT_SMALL);
+        button(dc, {"id" => "skip", "label" => "Pause beenden", "p" => true}, (w - 290) / 2, 276, 290, 64, w, h, Graphics.FONT_SMALL);
     }
 
-    // Kleiner Wechsel zwischen Haupt- und Zusatzseite am unteren Rand.
-    private function moreLink(dc as Graphics.Dc, label as String, w as Number, h as Number) as Void {
-        button(dc, {"id" => page == 0 ? "page1" : "page0", "label" => label}, (w - 130) / 2, 368, 130, 34, w, h, Graphics.FONT_XTINY);
+    // Übung wählen, Rückmeldung, Abschluss: Knöpfe untereinander.
+    private function drawList(dc as Graphics.Dc, s as Dictionary, w as Number, h as Number) as Void {
+        var cx = w / 2;
+        text(dc, cx, 104, Graphics.FONT_SMALL, s["title"] != null ? s["title"] as String : "", Graphics.COLOR_WHITE);
+        if (s["text"] != null && (s["text"] as String).length() > 0) {
+            text(dc, cx, 134, Graphics.FONT_XTINY, s["text"] as String, MUTE);
+        }
+        var list = [] as Array<Dictionary>;
+        var rows = s["rows"] as Array?;
+        if (rows != null) {
+            for (var r = 0; r < rows.size(); r++) {
+                var row = rows[r] as Array;
+                for (var i = 0; i < row.size(); i++) {
+                    var b = row[i] as Dictionary;
+                    // „Zurück“ liegt auf der unteren Taste.
+                    if (!"undo".equals(b["id"])) {
+                        list.add(b);
+                    }
+                }
+            }
+        }
+        var wide = s["wide"] as Dictionary?;
+        var n = list.size() > 3 ? 3 : list.size();
+        var y = 160;
+        for (var i = 0; i < n; i++) {
+            var long = (list[i]["label"] as String).length() > 15;
+            button(dc, list[i], (w - 300) / 2, y, 300, 56, w, h, long ? Graphics.FONT_TINY : Graphics.FONT_SMALL);
+            y += 62;
+        }
+        if (wide != null && !"undo".equals(wide["id"])) {
+            button(dc, wide, (w - 210) / 2, y + 2, 210, 40, w, h, Graphics.FONT_XTINY);
+        }
+    }
+
+    // Wert mit großem − und + links und rechts.
+    private function stepper(dc as Graphics.Dc, minus as String, plus as String, label as String, y as Number, w as Number, h as Number) as Void {
+        var bw = 70;
+        var x0 = (w - 300) / 2;
+        button(dc, {"id" => minus, "label" => "-"}, x0, y, bw, 50, w, h, Graphics.FONT_MEDIUM);
+        button(dc, {"id" => plus, "label" => "+"}, x0 + 300 - bw, y, bw, 50, w, h, Graphics.FONT_MEDIUM);
+        text(dc, w / 2, y + 25, Graphics.FONT_SMALL, label, Graphics.COLOR_WHITE);
     }
 
     private function button(dc as Graphics.Dc, b as Dictionary, x as Number, y as Number, bw as Number, bh as Number,

@@ -13,23 +13,19 @@ void main() {
   late DateTime t;
   late AppController c;
   setUp(() async {
-    t = DateTime(2026, 11, 25, 17);
+    t = DateTime(2026, 11, 26, 17);
     c = AppController(store: MemoryStore(), now: () => t);
     await c.load();
   });
   tearDown(() => c.dispose());
 
-  List<String> ids(Map<String, Object?> m) => [
-        for (final r in m['rows'] as List)
-          for (final b in r as List) (b as Map)['id'] as String,
-        if (m['wide'] != null) (m['wide'] as Map)['id'] as String,
-      ];
-
-  test('ohne Training: Start von der Uhr, mit Studio und daheim', () {
+  test('ohne Training: Ort und Trainingsart, fälliger Tag zuerst', () {
     final m = watchContent(c);
     expect(m['idle'], isTrue);
-    expect(m['title'], 'Heute dran: Torso');
-    expect(ids(m), ['go:torso:studio', 'go:torso:home', 'go:gk:studio']);
+    expect(m['place'], 'studio');
+    final days = (m['days'] as List).cast<Map>();
+    expect(days.map((d) => d['id']), ['torso', 'limbs', 'gk']);
+    expect(days.first['label'], 'Torso · dran');
   });
 
   test('Training komplett von der Uhr aus, inklusive Start', () async {
@@ -42,39 +38,43 @@ void main() {
     final b = WatchBridge(c, channel: ch);
     await b.start();
     expect(sent.single['idle'], isTrue);
+    final ts = t.millisecondsSinceEpoch ~/ 1000;
 
     b.handle('go:torso:home');
     await pumpEventQueue();
     expect(c.workout!.place, Place.home);
-    expect(sent.last['day'], 'Torso · Daheim');
+    expect(sent.last['phase'], 'next');
 
     b.handle('pick:Liegestütze');
     await pumpEventQueue();
-    final s = sent.last;
-    expect(s['status'], 'setRunning');
-    expect(s['set'], containsPair('ex', 'Liegestütze'));
-    expect((s['set'] as Map)['bw'], isTrue);
-    expect(s['startS'], t.millisecondsSinceEpoch ~/ 1000);
+    expect(sent.last['phase'], 'warmup');
+    expect(sent.last['warmupS'], ts);
+    expect((sent.last['set'] as Map)['bw'], isTrue);
 
-    b.handle('repsPlus');
+    b.handle('startSet');
     b.handle('done');
     await pumpEventQueue();
-    expect(sent.last['status'], 'resting');
-    expect(sent.last['restEndS'], (t.millisecondsSinceEpoch ~/ 1000) + 90);
+    expect(sent.last['phase'], 'log');
+    expect(sent.last['restEndS'], ts + 90);
+    b.handle('repsPlus');
+    b.handle('cont');
+    await pumpEventQueue();
+    expect(sent.last['phase'], 'rest');
+    b.handle('skip');
+    b.handle('done');
     b.handle('end');
     b.handle('rate:passend');
-    b.handle('accept');
     b.handle('finish');
     b.handle('save');
     await pumpEventQueue();
-    expect(c.sessions.single.place, Place.home);
+    expect(c.sessions.single.items.single.sets, hasLength(2));
     expect(sent.last['idle'], isTrue);
-    expect(sent.last['ended'], 'saved', reason: 'Uhr speichert daraufhin ihre Aufzeichnung');
+    expect(sent.last['ended'], 'saved');
 
     final n = sent.length;
     b.handle('hello');
     await pumpEventQueue();
-    expect(sent.length, n + 1, reason: 'neu gestartete Uhr bekommt den Stand erneut');
+    expect(sent.length, n + 1);
   });
 
   test('abgebrochenes Training wird auf der Uhr verworfen', () {
