@@ -82,7 +82,8 @@ LockContent? lockContent(AppController c) {
         text: text,
         dayName: day,
         start: w.startedAt,
-        status: st,
+        // Pause schon vorbei (nach „Zurück“): keine laufende Pausenuhr.
+        status: st == LockStatus.resting && w.restEndsAt == null ? LockStatus.none : st,
         setStart: st == LockStatus.warmup ? w.warmupStartedAt : w.setStartedAt,
         restStart: w.restEndsAt?.subtract(Duration(seconds: w.restSec)),
         restEnd: w.restEndsAt,

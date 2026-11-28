@@ -19,6 +19,7 @@ class MainDelegate extends WatchUi.InputDelegate {
     }
 
     private function run(id as String) as Void {
+        _app.lastInput = SatzweiseApp.now();
         _view.press(id);
         _app.act(id);
     }
@@ -42,6 +43,7 @@ class MainDelegate extends WatchUi.InputDelegate {
             return true;
         }
         if (key == WatchUi.KEY_ESC) {
+            _app.lastInput = SatzweiseApp.now();
             if (_app.phase().equals("idle")) {
                 if (_app.pickedPlace != null) {
                     _app.pickedPlace = null;

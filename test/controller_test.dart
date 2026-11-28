@@ -318,4 +318,66 @@ void main() {
     expect(c2.exercise('Rudern Kurzhantel').home, isTrue);
     c2.dispose();
   });
+
+  test('Zurück nach abgelaufener Pause legt keine doppelten Sätze an', () {
+    c.startWorkout('torso');
+    c.pickExercise('Latzug');
+    c.startSet();
+    c.completeSet();
+    pass(200);
+    c.tick();
+    final w = c.workout!;
+    expect(w.phase, Phase.set, reason: 'Pause vorbei: nächster Satz läuft von selbst');
+    expect(w.sets, hasLength(2));
+
+    c.undo();
+    final u = c.workout!;
+    expect(u.phase, Phase.log, reason: 'Zurück landet beim Eintragen');
+    expect(u.sets, hasLength(1));
+    expect(u.restEndsAt, isNull, reason: 'abgelaufene Pause startet nicht gleich wieder');
+    for (var i = 0; i < 3; i++) {
+      pass(30);
+      c.tick();
+    }
+    expect(c.workout!.phase, Phase.log);
+    expect(c.workout!.sets, hasLength(1));
+
+    c.endExercise();
+    c.rate(Rating.passend);
+    expect(c.workout!.items.single.sets, hasLength(1));
+  });
+
+  test('Zurück nach dem Löschen holt das Training wieder', () {
+    c.startWorkout('torso');
+    c.pickExercise('Bankdrücken');
+    oneSet(end: true);
+    c.rate(Rating.leicht);
+    c.finishWorkout();
+    c.saveWorkout();
+    final before = c.exercise('Bankdrücken').nextWeight;
+    final gone = c.deleteSession(c.sessions.single.id)!;
+    expect(c.sessions, isEmpty);
+    expect(c.exercise('Bankdrücken').nextWeight, isNull);
+    c.restoreSession(gone.session, gone.nextWeights);
+    expect(c.sessions, hasLength(1));
+    expect(c.exercise('Bankdrücken').nextWeight, before);
+  });
+
+  test('einzelnen Satz aus einem gespeicherten Training löschen', () {
+    c.startWorkout('torso');
+    c.pickExercise('Bankdrücken');
+    oneSet();
+    c.skipRest();
+    c.completeSet();
+    c.endExercise();
+    c.rate(Rating.passend);
+    c.finishWorkout();
+    c.saveWorkout();
+    final id = c.sessions.single.id;
+    expect(c.sessions.single.items.single.sets, hasLength(2));
+    c.deleteSetFromSession(id, 0, 1);
+    expect(c.sessions.single.items.single.sets, hasLength(1));
+    c.deleteSetFromSession(id, 0, 0);
+    expect(c.sessions, isEmpty, reason: 'ohne Sätze bleibt nichts übrig');
+  });
 }

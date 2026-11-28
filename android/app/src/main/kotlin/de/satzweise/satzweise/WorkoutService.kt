@@ -180,7 +180,12 @@ class WorkoutService : Service() {
                 running.render(s)
             } else {
                 val i = Intent(context, WorkoutService::class.java)
-                if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(i) else context.startService(i)
+                // Aus dem Hintergrund (z. B. Start von der Uhr) verbietet
+                // Android ab Version 12 das Starten; dann nicht abstürzen,
+                // sondern beim nächsten Update im Vordergrund erneut versuchen.
+                runCatching {
+                    if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(i) else context.startService(i)
+                }.onFailure { android.util.Log.w("SatzweiseService", "Start nicht erlaubt", it) }
             }
         }
 

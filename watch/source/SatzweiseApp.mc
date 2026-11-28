@@ -20,7 +20,6 @@ import Toybox.Communications;
 import Toybox.FitContributor;
 import Toybox.Lang;
 import Toybox.Position;
-import Toybox.Sensor;
 import Toybox.System;
 import Toybox.Time;
 import Toybox.Timer;
@@ -31,14 +30,29 @@ import Toybox.WatchUi;
 class SatzweiseApp extends Application.AppBase {
     // Letzter Stand vom Handy (oder lokal fortgeschrieben).
     var state as Dictionary? = null;
-    // Knopfdrücke, die noch nicht beim Handy angekommen sind.
-    var queue as Array<String> = [] as Array<String>;
+    // Knopfdrücke, die noch nicht beim Handy angekommen sind, je mit
+    // laufender Nummer, damit das Handy doppelt Angekommenes verwirft.
+    var queue as Array<Dictionary> = [] as Array<Dictionary>;
+    private var _seq as Number = 0;
+    private var _sid as Number = 0;
+    // Sendeversuche ohne Verbindung mit wachsendem Abstand (5 s … 60 s).
+    private var _retryAt as Number = 0;
+    private var _retryDelay as Number = 5;
+    // Nach dem Speichern schließt sich die App von selbst (Akku).
+    var exitAt as Number = 0;
+    var ended as String? = null;
+    var lastInput as Number = 0;
     var sending as Boolean = false;
     var connected as Boolean = false;
     var session as ActivityRecording.Session? = null;
     var restFinishedAt as Number = 0;
     // Start ohne Training: gewählter Ort (null = noch nicht gewählt).
     var pickedPlace as String? = null;
+    // Zuletzt von der Uhr gewählter Trainingsstart. War die Handy-App zu,
+    // ging er womöglich verloren: meldet sich das Handy danach mit „kein
+    // Training“, wird er einmal nachgeschickt.
+    private var _go as String? = null;
+    private var _goAt as Number = 0;
     // Testbuild mit Beispieldaten: nichts ans Handy senden.
     var demoMode as Boolean = false;
     private var _fExercise as FitContributor.Field? = null;
@@ -55,11 +69,12 @@ class SatzweiseApp extends Application.AppBase {
         if (cached instanceof Dictionary) {
             state = cached;
         }
-        Sensor.setEnabledSensors([Sensor.SENSOR_HEARTRATE] as Array<Sensor.SensorType>);
         gpsOff();
         if (Communications has :registerForPhoneAppMessages) {
             Communications.registerForPhoneAppMessages(method(:onPhone));
         }
+        _sid = (now() % 1000000) * 1000 + (System.getTimer() % 1000);
+        lastInput = now();
         demo();
         _timer = new Timer.Timer();
         _timer.start(method(:tick), 1000, true);
@@ -110,6 +125,12 @@ class SatzweiseApp extends Application.AppBase {
             flush();
             return;
         }
+        if (data["idle"] == true && _go != null && now() - _goAt < 600) {
+            var g = _go as String;
+            _go = null;
+            transmit(g);
+            return;
+        }
         state = data;
         if (data["idle"] == true) {
             try {
@@ -117,11 +138,14 @@ class SatzweiseApp extends Application.AppBase {
             } catch (e) {
                 // Nur ein Zwischenspeicher für den Start ohne Handy.
             }
-            var ended = data["ended"];
-            if (ended != null) {
-                endRecording(ended.equals("saved"));
+            var e = data["ended"];
+            if (e != null && session != null) {
+                endRecording(e.equals("saved"));
+                ended = e as String;
+                exitAt = now() + 8;
             }
         } else {
+            _go = null;
             pickedPlace = null;
             startRecording();
         }
@@ -129,7 +153,9 @@ class SatzweiseApp extends Application.AppBase {
     }
 
     function transmit(action as String) as Void {
-        queue.add(action);
+        _seq += 1;
+        queue.add({"a" => action, "n" => _seq});
+        _retryAt = 0;
         flush();
     }
 
@@ -138,15 +164,20 @@ class SatzweiseApp extends Application.AppBase {
             return;
         }
         sending = true;
-        Communications.transmit({"a" => queue[0], "ts" => now()}, null, new SendListener(self));
+        var q = queue[0];
+        Communications.transmit({"a" => q["a"], "n" => q["n"], "sid" => _sid, "ts" => now()}, null, new SendListener(self));
     }
 
     function sent(ok as Boolean) as Void {
         sending = false;
         connected = ok;
         if (ok) {
+            _retryDelay = 5;
             queue = queue.slice(1, null);
             flush();
+        } else {
+            _retryAt = now() + _retryDelay;
+            _retryDelay = _retryDelay >= 30 ? 60 : _retryDelay * 2;
         }
         WatchUi.requestUpdate();
     }
@@ -155,10 +186,15 @@ class SatzweiseApp extends Application.AppBase {
 
     // Führt einen Knopfdruck aus: lokal sofort sichtbar, dann ans Handy.
     function act(id as String) as Void {
+        lastInput = now();
         if (id.find("place:") == 0) {
             pickedPlace = id.substring(6, id.length());
             WatchUi.requestUpdate();
             return;
+        }
+        if (id.find("go:") == 0) {
+            _go = id;
+            _goAt = now();
         }
         applyLocal(id);
         transmit(id);
@@ -260,12 +296,23 @@ class SatzweiseApp extends Application.AppBase {
                 Attention.playTone(Attention.TONE_ALARM);
             }
         }
-        // Ohne Verbindung nur alle 5 s neu versuchen, sonst bremst sich die
-        // Uhr mit ständigen Sendeversuchen selbst aus.
-        if (queue.size() > 0 && !sending && (connected || now() % 5 == 0)) {
+        // Ohne Verbindung mit wachsendem Abstand neu versuchen, sonst kostet
+        // das ständige Funken Akku.
+        if (queue.size() > 0 && !sending && now() >= _retryAt) {
             flush();
         }
-        WatchUi.requestUpdate();
+        // Akku: nach dem Speichern und nach 3 min ohne Bedienung am
+        // Startbildschirm schließt sich die App.
+        var t = now();
+        if ((exitAt > 0 && t >= exitAt) || (p.equals("idle") && session == null && queue.size() == 0 && t - lastInput > 180)) {
+            System.exit();
+        }
+        // Nur neu zeichnen, wenn eine Uhr läuft.
+        if (p.equals("warmup") || p.equals("set") || p.equals("log") || p.equals("rest") || exitAt > 0) {
+            WatchUi.requestUpdate();
+        } else if (t % 15 == 0) {
+            WatchUi.requestUpdate();
+        }
     }
 
     // ------------------------------------------------------------ Aufzeichnung

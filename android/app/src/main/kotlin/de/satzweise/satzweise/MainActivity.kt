@@ -27,6 +27,10 @@ class MainActivity : FlutterActivity() {
                     result.success(null)
                 }
                 "pendingActions" -> result.success(WatchBridge.drain())
+                "open" -> {
+                    WatchBridge.open()
+                    result.success(null)
+                }
                 else -> result.notImplemented()
             }
         }

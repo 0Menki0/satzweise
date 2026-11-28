@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:material_ui/material_ui.dart';
@@ -88,15 +89,26 @@ class _HistoryTabState extends State<HistoryTab> {
               Text('${(s.durationSec / 60).round()} min · ${s.items.length} Übungen · ${s.setCount} Sätze · ${kg(s.volume)}',
                   style: TextStyle(fontSize: 13, color: col.mute)),
               if (open == s.id)
-                for (final it in s.items)
+                for (final (ii, it) in s.items.indexed)
                   Padding(
                     padding: const EdgeInsets.only(top: 6),
                     child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
                       Expanded(
                           child: Wrap(spacing: 6, children: [Text(it.exercise, style: const TextStyle(fontSize: 13)), MachineBadge(it.machine)])),
+                      // Tippen auf einen Satz bietet an, ihn zu löschen (z. B. doppelt eingetragen).
                       Flexible(
-                        child: Text(it.sets.map((x) => setLabel(widget.c.tryExercise(it.exercise), x.reps, x.weight)).join(' · '),
-                            textAlign: TextAlign.right, style: const TextStyle(fontSize: 13)),
+                        child: Wrap(alignment: WrapAlignment.end, spacing: 2, runSpacing: 2, children: [
+                          for (final (si, x) in it.sets.indexed)
+                            InkWell(
+                              borderRadius: BorderRadius.circular(6),
+                              onTap: () => _confirmDeleteSet(s, ii, si, it.exercise, setLabel(widget.c.tryExercise(it.exercise), x.reps, x.weight)),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                                child: Text(setLabel(widget.c.tryExercise(it.exercise), x.reps, x.weight) + (si < it.sets.length - 1 ? ' ·' : ''),
+                                    style: const TextStyle(fontSize: 13)),
+                              ),
+                            ),
+                        ]),
                       ),
                     ]),
                   ),
@@ -134,9 +146,57 @@ class _HistoryTabState extends State<HistoryTab> {
       ),
     );
     if (ok != true || !mounted) return;
-    widget.c.deleteSession(s.id);
+    final gone = widget.c.deleteSession(s.id);
     setState(() => open = null);
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Training gelöscht')));
+    if (gone == null) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+        content: const Text('Training gelöscht'),
+        duration: const Duration(seconds: 8),
+        action: SnackBarAction(
+          label: 'Rückgängig',
+          onPressed: () {
+            widget.c.restoreSession(gone.session, gone.nextWeights);
+            if (mounted) setState(() => open = gone.session.id);
+          },
+        ),
+      ));
+  }
+
+  Future<void> _confirmDeleteSet(Session s, int item, int set, String exercise, String label) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Satz löschen?'),
+        content: Text('$exercise, Satz ${set + 1}: $label'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Abbrechen')),
+          FilledButton(
+            style: FilledButton.styleFrom(minimumSize: const Size(0, 44)),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Löschen'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    final backup = jsonEncode(s.toJson());
+    widget.c.deleteSetFromSession(s.id, item, set);
+    setState(() {});
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+        content: const Text('Satz gelöscht'),
+        duration: const Duration(seconds: 8),
+        action: SnackBarAction(
+          label: 'Rückgängig',
+          onPressed: () {
+            widget.c.replaceSession(Session.fromJson(jsonDecode(backup) as Map<String, dynamic>));
+            if (mounted) setState(() {});
+          },
+        ),
+      ));
   }
 
   static const _palette = [AppColors.red, AppColors.blueLight, Color(0xFF1D8A4D), Color(0xFFB86E00), Color(0xFF7B4FB8), Color(0xFF6B6862)];

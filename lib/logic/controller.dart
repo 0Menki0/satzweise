@@ -126,6 +126,8 @@ class AppController extends ChangeNotifier {
     // Werte).
     if ((w.phase == Phase.log || w.phase == Phase.rest) && w.restEndsAt != null && !now.isBefore(w.restEndsAt!)) {
       final at = w.restEndsAt!;
+      // Als eigener Schritt, damit „Zurück“ genau hierher zurückkommt.
+      _snap('Pause abgelaufen');
       if (w.phase == Phase.log) _planNext(w);
       _beginSet(w, at);
       restFinishedAt = now;
@@ -183,6 +185,12 @@ class AppController extends ChangeNotifier {
     if (_undo.isEmpty) return;
     final s = _undo.removeLast();
     workout = s.workout == null ? null : ActiveWorkout.fromJson(jsonDecode(s.workout!) as Map<String, dynamic>);
+    // Zurück in eine inzwischen abgelaufene Pause: nicht sofort wieder
+    // automatisch weiter (sonst entstehen doppelte Sätze), sondern warten.
+    final rw = workout;
+    if (rw != null && (rw.phase == Phase.log || rw.phase == Phase.rest) && rw.restEndsAt != null && !now.isBefore(rw.restEndsAt!)) {
+      rw.restEndsAt = null;
+    }
     for (final e in exercises) {
       if (s.nextWeights.containsKey(e.name)) e.nextWeight = s.nextWeights[e.name];
     }
@@ -404,9 +412,11 @@ class AppController extends ChangeNotifier {
 
   /// Löscht ein gespeichertes Training. Die Gewichtsvorgabe fürs nächste Mal
   /// richtet sich danach wieder nach dem letzten verbliebenen Training.
-  void deleteSession(String id) {
+  /// Gibt zurück, was [restoreSession] zum Wiederherstellen braucht.
+  ({Session session, Map<String, double?> nextWeights})? deleteSession(String id) {
     final gone = sessions.where((s) => s.id == id).firstOrNull;
-    if (gone == null) return;
+    if (gone == null) return null;
+    final before = {for (final it in gone.items) it.exercise: tryExercise(it.exercise)?.nextWeight};
     sessions.remove(gone);
     // Zurück würde sonst in ein Training springen, das es nicht mehr gibt.
     _undo.clear();
@@ -417,6 +427,38 @@ class AppController extends ChangeNotifier {
       final inActive = active.where((a) => a.exercise == e.name).lastOrNull;
       e.nextWeight = inActive?.nextWeight ?? lastLog(sessions, e.name)?.log.nextWeight;
     }
+    _changed();
+    return (session: gone, nextWeights: before);
+  }
+
+  /// Ein eben gelöschtes Training wiederherstellen.
+  void restoreSession(Session s, Map<String, double?> nextWeights) {
+    if (sessions.any((x) => x.id == s.id)) return;
+    sessions
+      ..add(s)
+      ..sort((a, b) => a.start.compareTo(b.start));
+    nextWeights.forEach((n, w) => tryExercise(n)?.nextWeight = w);
+    _changed();
+  }
+
+  /// Gespeichertes Training durch eine Fassung ersetzen (Rückgängig nach
+  /// dem Löschen eines Satzes); fehlt es inzwischen, wird es wieder eingefügt.
+  void replaceSession(Session s) {
+    sessions
+      ..removeWhere((x) => x.id == s.id)
+      ..add(s)
+      ..sort((a, b) => a.start.compareTo(b.start));
+    _changed();
+  }
+
+  /// Einzelnen Satz aus einem gespeicherten Training löschen, z. B. einen
+  /// versehentlich doppelt eingetragenen. Ohne Sätze entfällt die Übung.
+  void deleteSetFromSession(String sessionId, int item, int set) {
+    final s = sessions.where((x) => x.id == sessionId).firstOrNull;
+    if (s == null || item >= s.items.length || set >= s.items[item].sets.length) return;
+    s.items[item].sets.removeAt(set);
+    if (s.items[item].sets.isEmpty) s.items.removeAt(item);
+    if (s.items.isEmpty) sessions.remove(s);
     _changed();
   }
 

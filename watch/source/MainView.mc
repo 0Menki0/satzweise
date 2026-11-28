@@ -105,7 +105,11 @@ class MainView extends WatchUi.View {
         // Kopf: Tag, Gesamtzeit; darunter Senden, offline oder Puls.
         var head = s["day"] != null ? s["day"] as String : "Satzweise";
         if (!p.equals("idle") && s["startS"] != null) {
-            head = head + " · " + clock(now - (s["startS"] as Number));
+            var timed = p.equals("warmup") || p.equals("set") || p.equals("log") || p.equals("rest");
+            var total = now - (s["startS"] as Number);
+            // Ohne laufende Uhr nur Minuten: dann muss nicht jede Sekunde
+            // neu gezeichnet werden.
+            head = head + " · " + (timed ? clock(total) : (total / 60).format("%d") + " min");
         }
         dc.setColor(MUTE, Graphics.COLOR_TRANSPARENT);
         dc.drawText(cx, 34, Graphics.FONT_XTINY, head, Graphics.TEXT_JUSTIFY_CENTER);
@@ -149,6 +153,16 @@ class MainView extends WatchUi.View {
     // 1 Ort, 2 Trainingsart.
     private function drawStart(dc as Graphics.Dc, s as Dictionary, w as Number, h as Number) as Void {
         var cx = w / 2;
+        if (_app.ended != null) {
+            text(dc, cx, h * 0.45, Graphics.FONT_MEDIUM, _app.ended.equals("saved") ? "Gespeichert" : "Verworfen", Graphics.COLOR_WHITE);
+            text(dc, cx, h * 0.58, Graphics.FONT_XTINY, "Satzweise schließt sich", MUTE);
+            return;
+        }
+        if (_app.queue.size() > 0) {
+            text(dc, cx, h * 0.42, Graphics.FONT_SMALL, "Warte auf das Handy", Graphics.COLOR_WHITE);
+            text(dc, cx, h * 0.56, Graphics.FONT_XTINY, "Öffne Satzweise\nauf dem Handy", MUTE);
+            return;
+        }
         var picked = _app.pickedPlace;
         if (picked == null) {
             text(dc, cx, 112, Graphics.FONT_SMALL, "Wo trainierst du?", Graphics.COLOR_WHITE);
@@ -200,6 +214,9 @@ class MainView extends WatchUi.View {
     private function ring(dc as Graphics.Dc, s as Dictionary, now as Number, w as Number, h as Number) as Number {
         var cx = w / 2;
         var end = s["restEndS"] as Number;
+        if (end <= 0) {
+            return 0;
+        }
         var start = s["restStartS"] as Number;
         var total = end - start;
         var left = end - now;

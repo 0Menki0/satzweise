@@ -86,6 +86,8 @@ class WatchBridge {
   final AppController c;
   final MethodChannel _ch;
   String? _last;
+  bool? _wasActive;
+  DateTime? _fromWatchAt;
 
   Future<void> start() async {
     _ch.setMethodCallHandler((call) async {
@@ -103,6 +105,7 @@ class WatchBridge {
   }
 
   void handle(String action) {
+    _fromWatchAt = DateTime.now();
     if (action == 'hello') {
       _last = null; // Uhr ist neu gestartet: Stand auf jeden Fall schicken.
       _sync();
@@ -113,6 +116,14 @@ class WatchBridge {
 
   Future<void> _sync() async {
     if (!c.loaded) return;
+    // Training am Handy begonnen: Satzweise auf der Uhr öffnen (die Uhr
+    // fragt nach). Kam der Start von der Uhr, läuft sie schon.
+    final active = c.workout != null;
+    if (active && _wasActive == false &&
+        (_fromWatchAt == null || DateTime.now().difference(_fromWatchAt!) > const Duration(seconds: 5))) {
+      _ch.invokeMethod<void>('open').catchError((_) {});
+    }
+    _wasActive = active;
     final content = watchContent(c);
     final sig = jsonEncode(content);
     if (sig == _last) return;
