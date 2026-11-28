@@ -9,6 +9,8 @@ import '../logic/workout.dart';
 import 'pictogram.dart';
 import 'theme.dart';
 import 'widgets.dart';
+import '../logic/muscles.dart';
+import 'muscle_map.dart';
 
 /// Ablauf (gleich auf Uhr, App und Sperrbildschirm):
 /// Ort → Trainingsart → Übung → Aufwärmen → Satz → Satz eintragen (Pause
@@ -632,6 +634,8 @@ class _SummaryView extends StatelessWidget {
         const SizedBox(width: 8),
         Expanded(child: Kpi('${m.setCount}', 'Sätze, ${w.items.length} Übungen')),
       ]),
+      const SizedBox(height: 12),
+      _MuscleCard(load: muscleLoad(w.items, (n) => c.tryExercise(n)?.group)),
       if (m.previous != null) ...[
         const SizedBox(height: 6),
         Text(
@@ -643,11 +647,59 @@ class _SummaryView extends StatelessWidget {
       const SizedBox(height: 8),
       for (final r in m.rows) _CompareRow(r: r, e: c.tryExercise(r.log.exercise)),
       const SizedBox(height: 12),
-      Hint(Text('Garmin: Mit der Uhren-App wird dieses Training als Aktivität „$dn“ an Garmin Connect '
-          'und weiter an Strava übertragen. Die Uhren-App folgt im nächsten Schritt.')),
+      Hint(Text('Garmin: Mit der Uhren-App landet dieses Training als Aktivität „$dn“ in Garmin Connect '
+          'und weiter in Strava.')),
       const SizedBox(height: 12),
       FilledButton(onPressed: c.saveWorkout, child: const Text('Speichern')),
     ]);
+  }
+}
+
+/// „Gut gemacht!“ mit Muskelfigur und den am stärksten beanspruchten Muskeln.
+class _MuscleCard extends StatelessWidget {
+  const _MuscleCard({required this.load});
+  final Map<Muscle, double> load;
+
+  @override
+  Widget build(BuildContext context) {
+    final col = AppColors.of(context);
+    final top = load.entries.where((e) => e.value > 0).toList()..sort((a, b) => b.value.compareTo(a.value));
+    final max = top.isEmpty ? 1.0 : top.first.value;
+    String n(double v) => v == v.roundToDouble() ? v.toStringAsFixed(0) : v.toStringAsFixed(1).replaceAll('.', ',');
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
+      decoration: BoxDecoration(color: col.surface, borderRadius: BorderRadius.circular(16), border: Border.all(color: col.line)),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Text('Gut gemacht!', style: display(context, 22)),
+        const SizedBox(height: 2),
+        Text('Hier siehst du, was heute wie stark beansprucht wurde.', style: TextStyle(fontSize: 13, color: col.mute)),
+        const SizedBox(height: 12),
+        MuscleMap(load: load, figureWidth: 120),
+        const SizedBox(height: 8),
+        const MuscleLegend(),
+        if (top.isNotEmpty) const SizedBox(height: 12),
+        for (final e in top.take(5))
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 3),
+            child: Row(children: [
+              SizedBox(width: 120, child: Text(e.key.label, style: const TextStyle(fontSize: 13))),
+              Expanded(
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(3),
+                  child: LinearProgressIndicator(
+                      value: e.value / max, minHeight: 6, backgroundColor: col.line, color: muscleColors[loadLevel(e.value)]),
+                ),
+              ),
+              SizedBox(width: 40, child: Text(n(e.value), textAlign: TextAlign.right, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600))),
+            ]),
+          ),
+        if (top.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Text('Zahl = Sätze. Hauptmuskel zählt voll, Hilfsmuskeln halb.', style: TextStyle(fontSize: 11, color: col.mute)),
+          ),
+      ]),
+    );
   }
 }
 

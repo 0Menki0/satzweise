@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:material_ui/material_ui.dart';
@@ -27,6 +28,8 @@ Future<void> main() async {
     };
   }
   runApp(SatzweiseApp(c: c));
+  // Web-Vorschau: Bedienhilfen an, damit sich die Vorschau per Skript bedienen lässt.
+  if (kIsWeb && Uri.base.queryParameters.containsKey('demo')) SemanticsBinding.instance.ensureSemantics();
   await c.load(demo: kIsWeb && Uri.base.queryParameters.containsKey('demo'));
   if (android) {
     await LockScreenBridge(c).start();

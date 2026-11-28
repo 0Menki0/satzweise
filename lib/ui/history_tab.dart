@@ -10,6 +10,8 @@ import '../logic/controller.dart';
 import 'pictogram.dart';
 import 'theme.dart';
 import 'widgets.dart';
+import '../logic/muscles.dart';
+import 'muscle_map.dart';
 
 class HistoryTab extends StatefulWidget {
   const HistoryTab({super.key, required this.c});
@@ -83,11 +85,29 @@ class _HistoryTabState extends State<HistoryTab> {
             decoration: BoxDecoration(border: Border(bottom: BorderSide(color: col.line))),
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Row(children: [
-                Expanded(child: Text(dayLabel(s.start), style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15))),
-                DayTag(s.day, suffix: ' · ${s.place.label}'),
+                if (open != s.id) ...[
+                  BodyFigure(front: true, load: _load(s), width: 22),
+                  BodyFigure(front: false, load: _load(s), width: 22),
+                  const SizedBox(width: 10),
+                ],
+                Expanded(
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Row(children: [
+                      Expanded(child: Text(dayLabel(s.start), style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15))),
+                      DayTag(s.day, suffix: ' · ${s.place.label}'),
+                    ]),
+                    Text('${(s.durationSec / 60).round()} min · ${s.items.length} Übungen · ${s.setCount} Sätze · ${kg(s.volume)}',
+                        style: TextStyle(fontSize: 13, color: col.mute)),
+                  ]),
+                ),
               ]),
-              Text('${(s.durationSec / 60).round()} min · ${s.items.length} Übungen · ${s.setCount} Sätze · ${kg(s.volume)}',
-                  style: TextStyle(fontSize: 13, color: col.mute)),
+              if (open == s.id) ...[
+                const SizedBox(height: 10),
+                MuscleMap(load: _load(s), figureWidth: 96),
+                const SizedBox(height: 6),
+                const MuscleLegend(),
+                const SizedBox(height: 6),
+              ],
               if (open == s.id)
                 for (final (ii, it) in s.items.indexed)
                   Padding(
@@ -163,6 +183,8 @@ class _HistoryTabState extends State<HistoryTab> {
         ),
       ));
   }
+
+  Map<Muscle, double> _load(Session s) => muscleLoad(s.items, (n) => widget.c.tryExercise(n)?.group);
 
   Future<void> _confirmDeleteSet(Session s, int item, int set, String exercise, String label) async {
     final ok = await showDialog<bool>(
